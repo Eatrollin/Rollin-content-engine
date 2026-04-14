@@ -8,7 +8,7 @@ const logger    = require('./logger');
 
 // ─── Config ───────────────────────────────────────────────────────────────────
 const MODEL              = 'claude-sonnet-4-6';
-const MAX_TOKENS         = 8192;
+const MAX_TOKENS         = 16000;
 const TOTAL_RECS         = 12;
 const CONTENT_LIB_PATH   = process.env.CONTENT_LIBRARY_PATH ||
                             path.join(os.homedir(), 'Desktop', 'rollin-content');
@@ -169,10 +169,36 @@ function buildPrompt(trendAnalysis, scoredVideos) {
 function extractJSON(text) {
   const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/);
   if (fenced) return JSON.parse(fenced[1].trim());
+
   try { return JSON.parse(text.trim()); } catch (_) {}
-  const s = text.indexOf('{');
-  const e = text.lastIndexOf('}');
-  if (s !== -1 && e !== -1) return JSON.parse(text.slice(s, e + 1));
+
+  const start = text.indexOf('{');
+  const end   = text.lastIndexOf('}');
+  if (start !== -1 && end !== -1) {
+    try {
+      return JSON.parse(text.slice(start, end + 1));
+    } catch (_) {}
+  }
+
+  // Response was cut off — walk backwards from the last valid } to find the
+  // largest prefix that parses cleanly. Handles token-limit truncation mid-field.
+  if (start !== -1) {
+    let closePos = text.lastIndexOf('}');
+    while (closePos > start) {
+      try {
+        const candidate = text.slice(start, closePos + 1);
+        const parsed = JSON.parse(candidate);
+        logger.warn(
+          `[Recommender] Response truncated — parsed partial JSON (${candidate.length} of ${text.length} chars). ` +
+          `Some recommendations may be missing.`
+        );
+        return parsed;
+      } catch (_) {
+        closePos = text.lastIndexOf('}', closePos - 1);
+      }
+    }
+  }
+
   throw new Error('Could not extract JSON from Claude response');
 }
 
