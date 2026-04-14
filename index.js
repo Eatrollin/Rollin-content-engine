@@ -35,8 +35,9 @@ if (!fse.existsSync(PERF_HISTORY)) fse.writeJsonSync(PERF_HISTORY, { posts: [] }
 if (!fse.existsSync(APPROVAL_HISTORY)) fse.writeJsonSync(APPROVAL_HISTORY, { decisions: [] }, { spaces: 2 });
 
 // ─── Startup ─────────────────────────────────────────────────────────────────
-const isDev  = process.argv.includes('--dev');
-const isTest = process.argv.includes('--test');
+const isDev      = process.argv.includes('--dev');
+const isTest     = process.argv.includes('--test');
+const isForceRun = process.env.FORCE_RUN === 'true';
 
 console.log('\n╔══════════════════════════════════════════════════════════╗');
 console.log('║          ROLLIN CONTENT ENGINE  •  v1.0.0                ║');
@@ -51,9 +52,9 @@ dashboardServer.start();
 const scheduler = require('./src/scheduler');
 scheduler.register();
 
-// In dev mode, fire the pipeline immediately for testing
-if (isDev || isTest) {
-  const mode = isTest ? 'TEST' : 'DEV';
+// Run pipeline immediately in dev mode, test mode, or when FORCE_RUN=true (Railway)
+if (isDev || isTest || isForceRun) {
+  const mode = isTest ? 'TEST' : (isForceRun ? 'FORCE_RUN' : 'DEV');
   console.log(`[${mode} MODE] Running pipeline immediately...\n`);
   if (isTest) console.log('[TEST MODE] Step 3 (Apify) will be skipped — loading raw-data cache.\n');
   const pipeline = require('./src/pipeline');

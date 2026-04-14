@@ -281,6 +281,7 @@ Serves the web dashboard on port 3000. Exposes REST endpoints for state, approva
 |----------|---------|---------|
 | `DASHBOARD_PORT` | `3000` | Local web dashboard port |
 | `CRON_SCHEDULE` | `0 6 * * *` | Daily pipeline trigger (6am Detroit) |
+| `FORCE_RUN` | *(unset)* | Set to `true` to run the pipeline immediately on startup (use in Railway instead of `--dev`) |
 | `CONTENT_LIBRARY_PATH` | `Desktop/rollin-content` | Raw footage for Higgsfield submission |
 | `OUTPUTS_PATH` | `Desktop/rollin-outputs` | Where recommendation files are saved |
 
