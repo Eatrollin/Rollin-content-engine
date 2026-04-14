@@ -5,7 +5,7 @@ const logger    = require('./logger');
 
 // ─── Claude model ─────────────────────────────────────────────────────────────
 const MODEL      = 'claude-sonnet-4-6';
-const MAX_TOKENS = 8192;
+const MAX_TOKENS = 16000;
 
 // How many top videos (by composite KPI score) to send Claude
 const TOP_VIDEOS_LIMIT = 20;
@@ -182,7 +182,28 @@ function extractJSON(text) {
   const start = text.indexOf('{');
   const end   = text.lastIndexOf('}');
   if (start !== -1 && end !== -1) {
-    return JSON.parse(text.slice(start, end + 1));
+    try {
+      return JSON.parse(text.slice(start, end + 1));
+    } catch (_) {}
+  }
+
+  // Response was cut off — walk backwards from the last valid } to find the
+  // largest prefix that parses cleanly. Handles token-limit truncation mid-field.
+  if (start !== -1) {
+    let closePos = text.lastIndexOf('}');
+    while (closePos > start) {
+      try {
+        const candidate = text.slice(start, closePos + 1);
+        const parsed = JSON.parse(candidate);
+        logger.warn(
+          `[Analyzer] Response truncated — parsed partial JSON (${candidate.length} of ${text.length} chars). ` +
+          `Some fields may be missing.`
+        );
+        return parsed;
+      } catch (_) {
+        closePos = text.lastIndexOf('}', closePos - 1);
+      }
+    }
   }
 
   throw new Error('Could not extract JSON from Claude response');
