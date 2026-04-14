@@ -1,0 +1,19 @@
+# Environment — never commit API keys
+.env
+
+# Dependencies
+node_modules/
+
+# Runtime data
+logs/
+raw-data/
+data/performance-history.json
+data/approval-history.json
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/

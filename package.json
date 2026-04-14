@@ -1,0 +1,30 @@
+{
+  "name": "rollin-content-engine",
+  "version": "1.0.0",
+  "description": "Automated daily content intelligence system for Rollin — Premium Asian Fusion Ghost Kitchen, Detroit MI",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "node index.js --dev",
+    "pipeline": "node src/pipeline.js",
+    "dashboard": "node src/dashboard/server.js"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.39.0",
+    "apify-client": "^2.9.4",
+    "axios": "^1.7.2",
+    "date-fns": "^3.6.0",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "form-data": "^4.0.0",
+    "fs-extra": "^11.2.0",
+    "node-cron": "^3.0.3",
+    "nodemailer": "^6.9.14",
+    "openai": "^4.52.7",
+    "socket.io": "^4.7.5",
+    "winston": "^3.13.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
