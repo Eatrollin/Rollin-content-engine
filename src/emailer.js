@@ -16,9 +16,11 @@ const BRAND_WHITE    = '#ffffff';
 // ─── Nodemailer transport ─────────────────────────────────────────────────────
 function createTransport() {
   return nodemailer.createTransport({
-    host:   'smtp.gmail.com',
-    port:   587,
-    secure: false,
+    host:             'smtp.gmail.com',
+    port:             465,
+    secure:           true,
+    connectionTimeout: 30_000,
+    socketTimeout:     30_000,
     auth: {
       user: process.env.EMAIL_USER,
       pass: process.env.EMAIL_PASSWORD,

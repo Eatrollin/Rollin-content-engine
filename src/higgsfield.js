@@ -181,6 +181,73 @@ async function updateRecFile(rec, jobResult) {
   }
 }
 
+// ─── Save a ready-to-paste manual submission file when API is unavailable ────
+async function saveManualSubmitFile(rec) {
+  if (!rec.savedPaths?.json) return null;
+
+  const brief      = rec.higgsfieldBrief || {};
+  const outputPath = rec.savedPaths.json.replace(/\.json$/, '_higgsfield_manual.txt');
+
+  const lines = [
+    `HIGGSFIELD MANUAL SUBMISSION`,
+    `═══════════════════════════════════════════════════════════════`,
+    `Generated: ${new Date().toISOString()}`,
+    `Rec #${rec.rank}  |  Tier: ${(rec.tier || '').toUpperCase()}  |  Confidence: ${rec.confidenceScore}/10  |  ${rec.label}`,
+    ``,
+    `TITLE`,
+    `───────────────────────────────────────────────────────────────`,
+    rec.title || '',
+    ``,
+    `SCENE DESCRIPTION  ← paste this into Higgsfield "Prompt" field`,
+    `───────────────────────────────────────────────────────────────`,
+    brief.sceneDescription || rec.trendSummary || '',
+    ``,
+    `STYLE DIRECTION`,
+    `───────────────────────────────────────────────────────────────`,
+    brief.styleDirection || 'cinematic',
+    ``,
+    `MOOD`,
+    `───────────────────────────────────────────────────────────────`,
+    brief.mood || 'dark',
+    ``,
+    `DURATION`,
+    `───────────────────────────────────────────────────────────────`,
+    `${brief.durationSeconds || 15} seconds`,
+    ``,
+    `AUDIO DIRECTION`,
+    `───────────────────────────────────────────────────────────────`,
+    brief.audioDirection || 'minimal ambient',
+    ``,
+    `═══════════════════════════════════════════════════════════════`,
+    `CONTENT CONTEXT  (reference only — do not paste into Higgsfield)`,
+    `═══════════════════════════════════════════════════════════════`,
+    ``,
+    `Hook:`,
+    rec.contentBrief?.hook || '',
+    ``,
+    `Why it will work:`,
+    rec.whyItWillWork || '',
+    ``,
+    `Sample caption:`,
+    rec.contentBrief?.sampleCaption || '',
+    ``,
+    `Hashtags:`,
+    (rec.contentBrief?.hashtagSet || []).join(' '),
+    ``,
+    `Trend summary:`,
+    rec.trendSummary || '',
+  ];
+
+  try {
+    await fse.writeFile(outputPath, lines.join('\n'), 'utf8');
+    logger.info(`[Higgsfield]   ↳ Manual submit file saved: ${path.basename(outputPath)}`);
+    return outputPath;
+  } catch (err) {
+    logger.error(`[Higgsfield]   ↳ Failed to save manual submit file: ${err.message}`);
+    return null;
+  }
+}
+
 // ─── Poll for render status (called by dashboard on demand, not blocking) ─────
 // Call this separately after submission to check if a job has completed.
 async function checkJobStatus(jobId) {
@@ -225,9 +292,9 @@ async function run(recommendations) {
     return [];
   }
 
-  if (!process.env.HIGGSFIELD_API_KEY) {
-    logger.error('[Higgsfield] HIGGSFIELD_API_KEY not set — skipping submission.');
-    return [];
+  const apiKeyMissing = !process.env.HIGGSFIELD_API_KEY;
+  if (apiKeyMissing) {
+    logger.warn('[Higgsfield] HIGGSFIELD_API_KEY not set — API submission skipped. Manual files will be saved.');
   }
 
   // ── Select top N High-tier recs sorted by confidence ─────────────────────
@@ -241,7 +308,7 @@ async function run(recommendations) {
     return [];
   }
 
-  logger.info(`[Higgsfield] Submitting ${highTier.length} recommendation(s):`);
+  logger.info(`[Higgsfield] Processing ${highTier.length} recommendation(s):`);
   highTier.forEach((r) =>
     logger.info(`[Higgsfield]   • #${r.rank} "${r.title}" — ${r.confidenceScore}/10`)
   );
@@ -250,8 +317,30 @@ async function run(recommendations) {
   const jobs = [];
 
   for (const rec of highTier) {
-    const result = await submitOne(rec);
+    let result;
+
+    if (apiKeyMissing) {
+      result = {
+        success:     false,
+        jobId:       null,
+        status:      'skipped',
+        renderLink:  null,
+        error:       'HIGGSFIELD_API_KEY not set',
+        submittedAt: new Date().toISOString(),
+        footageUsed: null,
+        payload:     buildPayload(rec),
+      };
+    } else {
+      result = await submitOne(rec);
+    }
+
     await updateRecFile(rec, result);
+
+    // ── On any failure, save a ready-to-paste manual submission file ────────
+    if (!result.success) {
+      const manualPath = await saveManualSubmitFile(rec);
+      if (manualPath) result.manualSubmitFile = path.basename(manualPath);
+    }
 
     jobs.push({
       recommendationId:    rec.id,
@@ -274,8 +363,9 @@ async function run(recommendations) {
       `[Higgsfield]  ${icon} "${j.recommendationTitle}" — ` +
       `Job: ${j.jobId || 'n/a'}  Status: ${j.status}`
     );
-    if (j.renderLink) logger.info(`[Higgsfield]    Link: ${j.renderLink}`);
-    if (!j.success)   logger.error(`[Higgsfield]    Error: ${j.error}`);
+    if (j.renderLink)       logger.info(`[Higgsfield]    Link: ${j.renderLink}`);
+    if (!j.success)         logger.error(`[Higgsfield]    Error: ${j.error}`);
+    if (j.manualSubmitFile) logger.info(`[Higgsfield]    Manual file: ${j.manualSubmitFile}`);
   });
   logger.info('[Higgsfield] ─────────────────────────────────────────────');
 

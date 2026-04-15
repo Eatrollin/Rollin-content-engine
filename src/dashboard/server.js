@@ -198,10 +198,10 @@ app.get('/api/state', async (req, res) => {
 
 // ─── API: approve ─────────────────────────────────────────────────────────────
 app.post('/api/approve', async (req, res) => {
-  const { recId, date, tier } = req.body;
+  const { recId, date, tier, note } = req.body;
   if (!recId || !date) return res.status(400).json({ error: 'recId and date required' });
   try {
-    const result = await approvalManager.approve(recId, date, tier);
+    const result = await approvalManager.approve(recId, date, tier, note || '');
     if (result.success) io.emit('approval:update', { recId, decision: 'approved', ...result });
     res.json(result);
   } catch (err) {

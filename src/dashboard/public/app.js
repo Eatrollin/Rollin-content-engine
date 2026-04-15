@@ -242,13 +242,17 @@ function buildRecCard(rec) {
   const hook    = (brief.hook || '').slice(0, 120);
   const caption = (brief.sampleCaption || '').slice(0, 100);
 
+  const approvalNote = rec.approvalNote ? ` — ${escHtml(rec.approvalNote.slice(0, 80))}` : '';
   const actionHtml = isApproved
-    ? `<div class="decision-label decision-approved">✓ APPROVED</div>`
+    ? `<div class="decision-label decision-approved">✓ APPROVED${approvalNote}</div>`
     : isRejected
     ? `<div class="decision-label decision-rejected">✗ REJECTED — ${escHtml(rec.rejectionNote || '').slice(0, 60)}</div>`
     : `<div class="rec-footer">
-         <button class="btn-approve" onclick="handleApprove('${rec.id}','${tier}')">APPROVE</button>
-         <button class="btn-reject"  onclick="openRejectModal('${rec.id}','${tier}','${escAttr(rec.title)}')">REJECT</button>
+         <input type="text" id="approve-note-${rec.id}" class="approve-note-input" placeholder="Why are you approving this? (optional)" />
+         <div class="rec-footer-actions">
+           <button class="btn-approve" onclick="handleApprove('${rec.id}','${tier}')">APPROVE</button>
+           <button class="btn-reject"  onclick="openRejectModal('${rec.id}','${tier}','${escAttr(rec.title)}')">REJECT</button>
+         </div>
        </div>`;
 
   return `
@@ -272,11 +276,13 @@ function buildRecCard(rec) {
 
 /* ─── Approve / Reject ──────────────────────────────────────────────────────── */
 async function handleApprove(recId, tier) {
-  const card = document.getElementById('card-' + recId);
+  const card    = document.getElementById('card-' + recId);
   if (!card) return;
+  const noteEl  = document.getElementById('approve-note-' + recId);
+  const note    = noteEl ? noteEl.value.trim() : '';
 
   try {
-    const res  = await fetch('/api/approve', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ recId, date: TODAY, tier }) });
+    const res  = await fetch('/api/approve', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ recId, date: TODAY, tier, note }) });
     const data = await res.json();
     if (data.success) {
       updateCardDecision(recId, 'approved');
@@ -334,7 +340,9 @@ function updateCardDecision(recId, decision, note) {
 
   const label = document.createElement('div');
   label.className = 'decision-label ' + (decision === 'approved' ? 'decision-approved' : 'decision-rejected');
-  label.textContent = decision === 'approved' ? '✓ APPROVED' : `✗ REJECTED${note ? ' — ' + note.slice(0,60) : ''}`;
+  label.textContent = decision === 'approved'
+    ? `✓ APPROVED${note ? ' — ' + note.slice(0, 80) : ''}`
+    : `✗ REJECTED${note ? ' — ' + note.slice(0, 60) : ''}`;
 
   if (footer) footer.replaceWith(label);
   else card.appendChild(label);

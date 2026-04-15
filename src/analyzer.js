@@ -26,9 +26,13 @@ BRAND CONTEXT:
 - Location: Detroit, Michigan
 - Opening: June 1st
 - Social handles: @eatrollin on both Instagram and TikTok
-- Brand voice: Dark, clean, modern, bold, chef-driven. Premium but never stiff or pretentious.
-- Aesthetic: Cinematic food photography, dramatic lighting, raw kitchen energy, confident execution
-- Target audience: Detroit food culture, Asian food enthusiasts, ghost kitchen early adopters, people who care about quality delivery food
+- Founders: Chef Ivan (fine dining technique, formerly Tigerlily restaurant) + Chase Zaidan
+- Brand voice: Dark, clean, modern, bold, confident, chef-driven. Premium but never stiff or pretentious.
+- Visual direction: Dark backgrounds, high contrast, sauce drizzles, steam, char, gloss, texture. Think BlazynCoop cinematic food visuals meets CousinVinny family energy.
+- Menu anchors: braised pork belly bao, disrupted crispy rice with Mongolian beef and miso chimichurri, yakitori skewers, hand rolls, house-made sauces
+- Target customers: Downtown Detroit lunch professionals and younger late-night diners near Wayne State
+- Catchphrase: Every speaking video ends with "Keep Rollin."
+- Words to NEVER use in any recommendation: cheap, authentic, traditional, fast food
 
 YOUR ROLE:
 You analyze scraped social media data to identify what content formats, behaviors, sounds, and storytelling patterns are driving exceptional engagement in the food and restaurant space. Your job is to give Rollin's team a clear picture of what is working RIGHT NOW so they can create content that competes at the highest level.
@@ -37,7 +41,7 @@ ANALYSIS PRINCIPLES:
 1. Look for BEHAVIORAL patterns — not just keywords. "Restaurants that film their chef doing X with Y audio while Z is happening in the background" is more useful than "the word 'chef' appeared a lot."
 2. A CONFIRMED TREND requires the pattern to appear in 1 or more high-performing videos (above the KPI median) within the 24-hour scrape window. Any significant pattern Claude identifies should be flagged as confirmed.
 3. Every observation must include WHY it is likely performing well — psychology, platform mechanics, cultural timing, or format novelty.
-4. Always connect trends back to how Rollin specifically can execute them — what does this mean for a dark, bold, premium Asian fusion ghost kitchen in Detroit?
+4. Always connect trends back to how Rollin specifically can execute them — reference the actual menu (pork belly bao, crispy rice, yakitori, hand rolls), the Detroit customer (lunch professionals, late-night Wayne State crowd), and the visual identity (dark backgrounds, steam, char, sauce drizzles). Never suggest anything that uses the words: cheap, authentic, traditional, fast food.
 5. Be specific. "Close-up of sauce being poured in slow motion over white rice with dramatic bass-heavy audio" is better than "food looks good."
 
 OUTPUT FORMAT:
@@ -81,7 +85,7 @@ Respond ONLY with a valid JSON object. No markdown code blocks. No prose before 
 }`;
 
 // ─── Build user prompt from pipeline data ─────────────────────────────────────
-function buildUserPrompt(scoredVideos, transcriptions, ownPostPerformance) {
+function buildUserPrompt(scoredVideos, transcriptions, ownPostPerformance, perplexityFindings = null, trendingSounds = []) {
   const aboveThreshold = scoredVideos.filter((v) => v.kpi?.passedKpiThreshold);
   const belowThreshold = scoredVideos.filter((v) => !v.kpi?.passedKpiThreshold);
 
@@ -149,10 +153,28 @@ function buildUserPrompt(scoredVideos, transcriptions, ownPostPerformance) {
       instagramAboveThreshold: instagramAbove,
       medianBaseKpiScore:  aboveThreshold[0]?.kpi?.medianBaseKpiScore || 0,
       trendingAudioSounds: trendingAudio,
+      trendingSoundsSignal: trendingSounds.length > 0
+        ? trendingSounds.map((s) => ({
+            audioName:  s.audioName,
+            videoCount: s.videoCount,
+            trending:   s.trending,
+          }))
+        : 'No trending sound data available.',
       note: 'Instagram videos always show shareCount=0 and saveCount=0 — platform restriction.',
     },
     highPerformingVideos: topVideos,
     rollinOwnPerformance: ownPerformance || 'No @eatrollin performance data yet — system is pre-launch.',
+    perplexityResearch: perplexityFindings
+      ? {
+          sourceDate: perplexityFindings.sourceDate,
+          note: perplexityFindings.summary,
+          findings: perplexityFindings.findings.map((f) => ({
+            search:  f.searchNumber,
+            prompt:  f.prompt,
+            content: f.content,
+          })),
+        }
+      : 'No Perplexity research available for this run.',
     instructions: [
       'Analyze the highPerformingVideos for behavioral patterns — actions, formats, visual styles, spoken language, sounds.',
       'A CONFIRMED trend requires the pattern to appear in 1 or more highPerformingVideos — any significant pattern should be confirmed.',
@@ -160,6 +182,7 @@ function buildUserPrompt(scoredVideos, transcriptions, ownPostPerformance) {
       'For every trend, explain specifically WHY it is performing well.',
       'Connect every insight to how @eatrollin (premium Asian fusion ghost kitchen, Detroit) can execute it.',
       'If rollinOwnPerformance data is present, factor it in — what has worked or not worked on @eatrollin in the past?',
+      'If perplexityResearch findings are present, treat them as additional validated context — use them to strengthen or challenge trends you identify from the video data.',
       'Respond ONLY with the JSON schema defined in your system prompt. No prose, no markdown.',
     ],
   };
@@ -240,7 +263,7 @@ function normalizeResponse(raw, scoredVideos) {
 }
 
 // ─── Main ─────────────────────────────────────────────────────────────────────
-async function run(scoredVideos, transcriptions = {}, ownPostPerformance = []) {
+async function run(scoredVideos, transcriptions = {}, ownPostPerformance = [], perplexityFindings = null, trendingSounds = []) {
   logger.info('[Analyzer] ─────────────────────────────────────────────');
   logger.info('[Analyzer] Claude trend analysis starting...');
   logger.info(`[Analyzer] Model: ${MODEL}`);
@@ -248,6 +271,13 @@ async function run(scoredVideos, transcriptions = {}, ownPostPerformance = []) {
     `[Analyzer] Sending ${scoredVideos.filter((v) => v.kpi?.passedKpiThreshold).length} ` +
     `above-threshold videos + ${Object.keys(transcriptions).length} transcriptions`
   );
+  if (perplexityFindings) {
+    logger.info(`[Analyzer] Perplexity research: ${perplexityFindings.findings.length} findings from ${perplexityFindings.sourceDate}`);
+  }
+  if (trendingSounds.length > 0) {
+    const flagged = trendingSounds.filter((s) => s.trending);
+    logger.info(`[Analyzer] Trending sounds: ${trendingSounds.length} tracked, ${flagged.length} flagged (${flagged.map((s) => `"${s.audioName}"`).join(', ') || 'none'})`);
+  }
   logger.info('[Analyzer] ─────────────────────────────────────────────');
 
   if (!scoredVideos || scoredVideos.length === 0) {
@@ -255,7 +285,7 @@ async function run(scoredVideos, transcriptions = {}, ownPostPerformance = []) {
     return normalizeResponse({}, []);
   }
 
-  const userPrompt = buildUserPrompt(scoredVideos, transcriptions, ownPostPerformance);
+  const userPrompt = buildUserPrompt(scoredVideos, transcriptions, ownPostPerformance, perplexityFindings, trendingSounds);
   const promptTokenEstimate = Math.round(userPrompt.length / 4);
   logger.info(`[Analyzer] Prompt size: ~${promptTokenEstimate} tokens`);
 

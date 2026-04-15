@@ -53,7 +53,7 @@ async function loadMostRecentRawData() {
   logger.info(`[TEST MODE] Loading raw data from: ${file}`);
   const data = await fse.readJson(path.join(rawDataDir, file));
   logger.info(`[TEST MODE] Loaded ${data.videos?.length ?? 0} videos (date: ${data.date})`);
-  return data.videos || [];
+  return { videos: data.videos || [], trendingSounds: data.trendingSounds || [] };
 }
 
 // ─── Main pipeline entry point ───────────────────────────────────────────────
@@ -75,6 +75,8 @@ async function run({ testMode = false } = {}) {
     recommendations: [],
     higgsfieldJobs: [],
     ownPostPerformance: [],
+    perplexityFindings: null,
+    trendingSounds: [],
     emailSent: false,
   };
 
@@ -92,13 +94,27 @@ async function run({ testMode = false } = {}) {
 
   // ── Step 3: Scrape TikTok + Instagram (or load cached data in test mode) ───
   await runStep('Step 3 — Data Collection (Apify)', async () => {
+    let result;
     if (testMode) {
-      state.scrapedVideos = await loadMostRecentRawData();
-      logger.info(`[TEST MODE] Loaded ${state.scrapedVideos.length} videos from raw-data cache.`);
+      result = await loadMostRecentRawData();
+      logger.info(`[TEST MODE] Loaded ${result.videos.length} videos from raw-data cache.`);
     } else {
       const scraper = require('./scraper');
-      state.scrapedVideos = await scraper.run(state.date);
-      logger.info(`Scraped ${state.scrapedVideos.length} videos total.`);
+      result = await scraper.run(state.date);
+      logger.info(`Scraped ${result.videos.length} videos total.`);
+    }
+    state.scrapedVideos  = result.videos;
+    state.trendingSounds = result.trendingSounds || [];
+    const trendingCount  = state.trendingSounds.filter((s) => s.trending).length;
+    if (trendingCount > 0) logger.info(`${trendingCount} trending sound(s) detected.`);
+  });
+
+  // ── Step 2.5: Perplexity Research (parallel API searches) ────────────────
+  await runStep('Step 2.5 — Perplexity Research', async () => {
+    const perplexityResearch = require('./perplexityResearch');
+    state.perplexityFindings = await perplexityResearch.run(state.scrapedVideos, state.date);
+    if (state.perplexityFindings) {
+      logger.info(`Perplexity: ${state.perplexityFindings.findings.length} searches completed for ${state.date}.`);
     }
   });
 
@@ -132,7 +148,9 @@ async function run({ testMode = false } = {}) {
     state.trendAnalysis = await analyzer.run(
       state.scoredVideos,
       state.transcriptions,
-      state.ownPostPerformance   // { posts, learningContext, dayOverDay }
+      state.ownPostPerformance,    // { posts, learningContext, dayOverDay }
+      state.perplexityFindings,    // null if key missing or all searches failed
+      state.trendingSounds         // top 5 audio tracks from full dataset
     );
     const trendCount = state.trendAnalysis?.confirmedTrends?.length ?? 0;
     logger.info(`Analysis complete. ${trendCount} confirmed trends identified.`);

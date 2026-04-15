@@ -88,8 +88,9 @@ async function getApprovalHistory() {
 }
 
 // ─── APPROVE ─────────────────────────────────────────────────────────────────
-async function approve(recId, date, tier) {
+async function approve(recId, date, tier, note = '') {
   logger.info(`[Approval] APPROVE requested — rec: ${recId}  date: ${date}  tier: ${tier || 'auto'}`);
+  if (note) logger.info(`[Approval]   Note: "${note}"`);
 
   // ── 1. Daily cap check ───────────────────────────────────────────────────
   const todayCount = await getApprovalCount(date);
@@ -115,9 +116,10 @@ async function approve(recId, date, tier) {
 
   // ── 4. Update the recommendation file ────────────────────────────────────
   const approvedAt = new Date().toISOString();
-  found.data.approved   = true;
-  found.data.rejected   = false;
-  found.data.approvedAt = approvedAt;
+  found.data.approved       = true;
+  found.data.rejected       = false;
+  found.data.approvedAt     = approvedAt;
+  found.data.approvalNote   = note || '';
   found.data.approvalStatus = 'approved';
   await fse.writeJson(found.filePath, found.data, { spaces: 2 });
   logger.info(`[Approval] ✓ Rec file updated: ${path.basename(found.filePath)}`);
@@ -135,7 +137,7 @@ async function approve(recId, date, tier) {
     date,
     approvedAt,
     rejectedAt:          null,
-    note:                '',
+    note:                note || '',
     postUrl:             null,   // filled in later when the post goes live
     caption:             found.data.contentBrief?.sampleCaption || '',
     hashtagSet:          found.data.contentBrief?.hashtagSet    || [],
