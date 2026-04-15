@@ -1,5 +1,6 @@
 require('dotenv').config();
 
+const sgMail    = require('@sendgrid/mail');
 const nodemailer = require('nodemailer');
 const logger     = require('./logger');
 
@@ -325,50 +326,79 @@ function buildText(data, date) {
   return lines.join('\n');
 }
 
+// ─── SendGrid send ────────────────────────────────────────────────────────────
+async function sendViaSendGrid(subject, text, html) {
+  sgMail.setApiKey(process.env.SENDGRID_API_KEY);
+  await sgMail.send({
+    from:    { email: process.env.EMAIL_USER || 'noreply@eatrollin.food', name: 'Rollin Content Engine' },
+    to:      RECIPIENT,
+    subject,
+    text,
+    html,
+  });
+}
+
+// ─── Nodemailer fallback send ─────────────────────────────────────────────────
+async function sendViaNodemailer(subject, text, html) {
+  const transporter = createTransport();
+  await transporter.verify();
+  logger.info('[Email] SMTP connection verified.');
+  const info = await transporter.sendMail({
+    from:    `"Rollin Content Engine" <${process.env.EMAIL_USER}>`,
+    to:      RECIPIENT,
+    subject,
+    text,
+    html,
+  });
+  return info.messageId;
+}
+
 // ─── Main send function ───────────────────────────────────────────────────────
 async function send(state) {
   logger.info('[Email] ─────────────────────────────────────────────');
   logger.info('[Email] Preparing daily brief...');
 
-  if (!process.env.EMAIL_USER || !process.env.EMAIL_PASSWORD) {
-    logger.error('[Email] EMAIL_USER or EMAIL_PASSWORD not set — skipping.');
-    return { success: false, error: 'Missing email credentials in .env' };
-  }
-
   const now  = new Date();
   const date = now.toLocaleDateString('en-US', { timeZone: 'America/Detroit', year: 'numeric', month: '2-digit', day: '2-digit' }).replace(/\//g, '-');
 
-  const data = extractData(state);
-  const html = buildHTML(data, date);
-  const text = buildText(data, date);
-
+  const data    = extractData(state);
+  const html    = buildHTML(data, date);
+  const text    = buildText(data, date);
   const subject = `Rollin Content Engine · ${date} · ${data.recs.length} Recommendations Ready`;
 
   logger.info(`[Email] To: ${RECIPIENT}`);
   logger.info(`[Email] Subject: ${subject}`);
   logger.info(`[Email] Trends: ${data.topTrends.length} · Recs: ${data.topRecs.length} · Scraped: ${data.scraped}`);
 
-  try {
-    const transporter = createTransport();
+  // ── Primary: SendGrid ───────────────────────────────────────────────────────
+  if (process.env.SENDGRID_API_KEY) {
+    try {
+      await sendViaSendGrid(subject, text, html);
+      logger.info('[Email] ✓ Sent via SendGrid.');
+      logger.info('[Email] ─────────────────────────────────────────────');
+      return { success: true, transport: 'sendgrid' };
+    } catch (err) {
+      logger.error(`[Email] ✗ SendGrid failed: ${err.message}`);
+      logger.warn('[Email] Falling back to Nodemailer SMTP...');
+    }
+  } else {
+    logger.warn('[Email] SENDGRID_API_KEY not set — falling back to Nodemailer SMTP.');
+  }
 
-    // Verify SMTP connection before sending
-    await transporter.verify();
-    logger.info('[Email] SMTP connection verified.');
-
-    const info = await transporter.sendMail({
-      from:    `"Rollin Content Engine" <${process.env.EMAIL_USER}>`,
-      to:      RECIPIENT,
-      subject,
-      text,
-      html,
-    });
-
-    logger.info(`[Email] ✓ Sent — Message ID: ${info.messageId}`);
+  // ── Fallback: Nodemailer SMTP ───────────────────────────────────────────────
+  if (!process.env.EMAIL_USER || !process.env.EMAIL_PASSWORD) {
+    logger.error('[Email] EMAIL_USER or EMAIL_PASSWORD not set — cannot fall back. Skipping.');
     logger.info('[Email] ─────────────────────────────────────────────');
-    return { success: true, messageId: info.messageId };
+    return { success: false, error: 'No email transport available (SENDGRID_API_KEY and SMTP credentials both missing)' };
+  }
 
+  try {
+    const messageId = await sendViaNodemailer(subject, text, html);
+    logger.info(`[Email] ✓ Sent via Nodemailer — Message ID: ${messageId}`);
+    logger.info('[Email] ─────────────────────────────────────────────');
+    return { success: true, transport: 'nodemailer', messageId };
   } catch (err) {
-    logger.error(`[Email] ✗ Send failed: ${err.message}`);
+    logger.error(`[Email] ✗ Nodemailer failed: ${err.message}`);
     logger.info('[Email] ─────────────────────────────────────────────');
     return { success: false, error: err.message };
   }
