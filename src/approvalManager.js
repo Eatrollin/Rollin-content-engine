@@ -4,6 +4,7 @@ const fse    = require('fs-extra');
 const path   = require('path');
 const os     = require('os');
 const logger = require('./logger');
+const db     = require('./database');
 
 // ─── Config ───────────────────────────────────────────────────────────────────
 const APPROVAL_HISTORY_PATH = path.join(__dirname, '..', 'data', 'approval-history.json');
@@ -17,6 +18,9 @@ const TIERS                 = ['high', 'medium', 'low'];
 
 // ─── Load / save approval history ────────────────────────────────────────────
 async function loadHistory() {
+  // MongoDB primary — fall back to file if unavailable or empty
+  const mongoHistory = await db.getApprovalHistory().catch(() => null);
+  if (mongoHistory) return mongoHistory;
   try {
     return await fse.readJson(APPROVAL_HISTORY_PATH);
   } catch {
@@ -145,6 +149,9 @@ async function approve(recId, date, tier, note = '') {
   };
   history.decisions.push(decision);
   await saveHistory(history);
+  await db.saveApprovalDecision(decision).catch(err =>
+    logger.warn(`[Approval] MongoDB write failed (file backup intact): ${err.message}`)
+  );
 
   const newCount = todayCount + 1;
   logger.info(
@@ -229,6 +236,9 @@ async function reject(recId, date, tier, note = '') {
 
   history.decisions.push(decision);
   await saveHistory(history);
+  await db.saveApprovalDecision(decision).catch(err =>
+    logger.warn(`[Approval] MongoDB write failed (file backup intact): ${err.message}`)
+  );
 
   logger.info(
     `[Approval] ✗ Rejected: "${found.data.title}" ` +

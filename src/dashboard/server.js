@@ -12,6 +12,7 @@ const logger     = require('../logger');
 const approvalManager = require('../approvalManager');
 const higgsfield      = require('../higgsfield');
 const kpiScorer       = require('../kpiScorer');
+const db              = require('../database');
 
 // ─── Config ───────────────────────────────────────────────────────────────────
 const PORT         = parseInt(process.env.DASHBOARD_PORT || '3000', 10);
@@ -39,8 +40,13 @@ function dateString(daysAgo = 0) {
   return d.toISOString().slice(0, 10);
 }
 
-// Load all recommendation JSON files for a given date
+// Load all recommendations for a given date — MongoDB primary, files fallback
 async function loadRecs(date) {
+  const mongoRecs = await db.getRecommendations(date).catch(() => null);
+  if (mongoRecs && mongoRecs.length > 0) {
+    return mongoRecs.sort((a, b) => (a.rank || 99) - (b.rank || 99));
+  }
+  // File fallback
   const recs = [];
   for (const tier of ['high', 'medium', 'low']) {
     const dir = path.join(OUTPUTS_BASE, date, tier);
@@ -56,8 +62,11 @@ async function loadRecs(date) {
   return recs.sort((a, b) => (a.rank || 99) - (b.rank || 99));
 }
 
-// Load and KPI-score videos for a date, return only those that passed threshold
+// Load KPI-passing videos for a date — MongoDB primary, files fallback
 async function loadKpiVideos(date) {
+  const mongoVideos = await db.getKpiVideos(date).catch(() => null);
+  if (mongoVideos !== null) return mongoVideos;
+  // File fallback
   const p = path.join(RAW_DATA_DIR, `${date}.json`);
   if (!(await fse.pathExists(p))) return [];
   try {
@@ -71,7 +80,7 @@ async function loadKpiVideos(date) {
         url:               v.url,
         accountHandle:     v.accountHandle,
         platform:          v.platform,
-        compositeScore:    v.kpi?.compositeScore || 0,
+        compositeScore:    v.kpi?.compositeScore  || 0,
         kpiSignalsMatched: v.kpi?.kpiSignalsMatched || [],
         caption:           (v.caption || '').slice(0, 300),
         viewCount:         v.viewCount || 0,
@@ -79,8 +88,11 @@ async function loadKpiVideos(date) {
   } catch { return []; }
 }
 
-// Load raw scrape summary for a date
+// Load raw scrape summary for a date — MongoDB primary, files fallback
 async function loadScrapeStats(date) {
+  const mongoStats = await db.getScrapeStats(date).catch(() => null);
+  if (mongoStats) return mongoStats;
+  // File fallback
   const p = path.join(RAW_DATA_DIR, `${date}.json`);
   if (!(await fse.pathExists(p))) return null;
   try {
@@ -89,10 +101,11 @@ async function loadScrapeStats(date) {
   } catch { return null; }
 }
 
-// Load last N days of @eatrollin performance for the line chart
+// Load last 7 days of @eatrollin performance for the line chart — MongoDB primary, files fallback
 async function loadSevenDayPerf() {
   try {
-    const history = await fse.readJson(PERF_HISTORY);
+    const mongoHistory = await db.getPerformanceHistory().catch(() => null);
+    const history = mongoHistory || await fse.readJson(PERF_HISTORY).catch(() => ({ posts: [] }));
     const result  = [];
     for (let i = 6; i >= 0; i--) {
       const date  = dateString(i);
@@ -112,15 +125,17 @@ app.get('/api/state', async (req, res) => {
     const today    = req.query.date || todayString();
     const yesterday = dateString(1);
 
-    const [recs, scrapeStats, scrapeYesterday, approvalHistory, perfHistory, sevenDay, kpiVideos] = await Promise.all([
+    const [recs, scrapeStats, scrapeYesterday, approvalHistory, mongoPerf, sevenDay, kpiVideos] = await Promise.all([
       loadRecs(today),
       loadScrapeStats(today),
       loadScrapeStats(yesterday),
       approvalManager.getApprovalHistory(),
-      fse.readJson(PERF_HISTORY).catch(() => ({ posts: [] })),
+      db.getPerformanceHistory().catch(() => null),
       loadSevenDayPerf(),
       loadKpiVideos(today),
     ]);
+    // Performance history: MongoDB primary, file fallback
+    const perfHistory = mongoPerf || await fse.readJson(PERF_HISTORY).catch(() => ({ posts: [] }));
 
     const todayApprovals = approvalHistory.decisions.filter(d => d.date === today && d.decision === 'approved').length;
     const todayRejections = approvalHistory.decisions.filter(d => d.date === today && d.decision === 'rejected').length;
@@ -249,6 +264,7 @@ function emit(event, data) {
 
 // ─── Start ────────────────────────────────────────────────────────────────────
 function start() {
+  db.connect();   // non-blocking — DB reads fall back to files if this fails
   server.listen(PORT, () => {
     logger.info(`[Dashboard] Running at http://localhost:${PORT}`);
     // Auto-open browser (Windows: start, macOS: open, Linux: xdg-open)

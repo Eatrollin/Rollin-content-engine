@@ -3,7 +3,8 @@ require('dotenv').config();
 const logger = require('./logger');
 const path = require('path');
 const os   = require('os');
-const fse = require('fs-extra');
+const fse  = require('fs-extra');
+const db   = require('./database');
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -60,6 +61,9 @@ async function loadMostRecentRawData() {
 async function run({ testMode = false } = {}) {
   const pipelineStart = Date.now();
   const dateString = getDetroitDateString();
+
+  // Connect to MongoDB early so all steps can write to it
+  await db.connect();
 
   state = {
     date: dateString,
@@ -124,6 +128,16 @@ async function run({ testMode = false } = {}) {
     state.scoredVideos = kpiScorer.score(state.scrapedVideos);
     const passed = state.scoredVideos.filter((v) => v.passedKpiThreshold).length;
     logger.info(`KPI scored ${state.scoredVideos.length} videos. ${passed} passed threshold.`);
+
+    // Save scrape summary + KPI-passing videos to MongoDB
+    const scrapeStats = {
+      totalVideos:    state.scrapedVideos.length,
+      tiktokCount:    state.scrapedVideos.filter(v => v.platform === 'tiktok').length,
+      instagramCount: state.scrapedVideos.filter(v => v.platform === 'instagram').length,
+    };
+    await db.saveScrapedData(state.date, scrapeStats, state.scoredVideos).catch(err =>
+      logger.warn(`[Pipeline] MongoDB scrape data save failed: ${err.message}`)
+    );
   });
 
   // ── Step 9 (pre-run): Learning loop — check @eatrollin performance ─────────
@@ -190,6 +204,16 @@ async function run({ testMode = false } = {}) {
   } catch (_) {
     // Dashboard may not be running — not a pipeline failure
   }
+
+  // ── Save pipeline run summary to MongoDB ──────────────────────────────────
+  await db.savePipelineRun(state.date, {
+    totalScraped:    state.scrapedVideos.length,
+    passedKpi:       state.scoredVideos.filter(v => v.kpi?.passedKpiThreshold).length,
+    recommendations: state.recommendations.length,
+    higgsfieldJobs:  state.higgsfieldJobs.length,
+    emailSent:       state.emailSent,
+    testMode,
+  }).catch(err => logger.warn(`[Pipeline] MongoDB run save failed: ${err.message}`));
 
   const totalSeconds = ((Date.now() - pipelineStart) / 1000).toFixed(1);
   logger.info('');
