@@ -2,6 +2,7 @@ require('dotenv').config();
 
 const path = require('path');
 const fse = require('fs-extra');
+const { DATA_DIR } = require('./src/config');
 
 // ─── Verify required env vars on startup ────────────────────────────────────
 const REQUIRED_KEYS = [
@@ -26,7 +27,6 @@ if (missing.length > 0) {
 }
 
 // ─── Ensure data files exist ─────────────────────────────────────────────────
-const DATA_DIR = path.join(__dirname, 'data');
 const PERF_HISTORY = path.join(DATA_DIR, 'performance-history.json');
 const APPROVAL_HISTORY = path.join(DATA_DIR, 'approval-history.json');
 

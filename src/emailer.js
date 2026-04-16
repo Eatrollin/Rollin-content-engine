@@ -6,7 +6,8 @@ const logger     = require('./logger');
 
 // ─── Config ───────────────────────────────────────────────────────────────────
 const RECIPIENT      = 'chasezaidan@eatrollin.food';
-const DASHBOARD_URL  = process.env.DASHBOARD_URL || `http://localhost:${process.env.DASHBOARD_PORT || 3000}`;
+const DASHBOARD_URL  = process.env.DASHBOARD_URL ||
+  (process.env.NODE_ENV === 'production' ? '' : `http://localhost:${process.env.PORT || process.env.DASHBOARD_PORT || 3000}`);
 const BRAND_GOLD     = '#c8a96e';
 const BRAND_BG       = '#0a0a0a';
 const BRAND_CARD     = '#111111';

@@ -3,8 +3,9 @@ require('dotenv').config();
 const winston = require('winston');
 const path = require('path');
 const fse = require('fs-extra');
+const { DATA_DIR } = require('./config');
 
-const LOG_DIR = path.join(__dirname, '..', 'logs');
+const LOG_DIR = path.join(DATA_DIR, 'logs');
 fse.ensureDirSync(LOG_DIR);
 
 // Returns today's log file path in Detroit local time

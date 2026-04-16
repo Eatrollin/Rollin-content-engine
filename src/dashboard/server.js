@@ -14,7 +14,7 @@ const higgsfield      = require('../higgsfield');
 const kpiScorer       = require('../kpiScorer');
 
 // ─── Config ───────────────────────────────────────────────────────────────────
-const PORT         = parseInt(process.env.DASHBOARD_PORT || '3000', 10);
+const PORT         = parseInt(process.env.PORT || process.env.DASHBOARD_PORT || '3000', 10);
 const OUTPUTS_BASE = path.join(DATA_DIR, 'outputs');
 const RAW_DATA_DIR = path.join(DATA_DIR, 'raw-data');
 const PERF_HISTORY = path.join(DATA_DIR, 'performance-history.json');
