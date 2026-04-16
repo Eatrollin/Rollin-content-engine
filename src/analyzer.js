@@ -82,7 +82,9 @@ Respond ONLY with a valid JSON object. No markdown code blocks. No prose before 
   "topHashtags": ["hashtag1", "hashtag2"],
   "performanceSummary": "One paragraph plain-English overview of today's content landscape — what is dominating, what is emerging, what Rollin should pay attention to most.",
   "analysisTimestamp": "ISO timestamp"
-}`;
+}
+
+CRITICAL: Your entire response must be a single valid JSON object. Start your response with { and end with }. Do not include any text, explanation, or markdown before or after the JSON.`;
 
 // ─── Build user prompt from pipeline data ─────────────────────────────────────
 function buildUserPrompt(scoredVideos, transcriptions, ownPostPerformance, perplexityFindings = null, trendingSounds = []) {
@@ -190,42 +192,41 @@ function buildUserPrompt(scoredVideos, transcriptions, ownPostPerformance, perpl
   return JSON.stringify(payload, null, 2);
 }
 
-// ─── JSON extraction — handles Claude wrapping in markdown code blocks ────────
+// ─── JSON extraction — handles Claude wrapping in markdown prose or code blocks ─
 function extractJSON(text) {
-  // Strip markdown fences if present
+  // 1. Strip markdown fences if present (```json ... ``` or ``` ... ```)
   const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/);
-  if (fenced) return JSON.parse(fenced[1].trim());
-
-  // Try raw parse first
-  try {
-    return JSON.parse(text.trim());
-  } catch (_) {}
-
-  // Find first { to last } as fallback
-  const start = text.indexOf('{');
-  const end   = text.lastIndexOf('}');
-  if (start !== -1 && end !== -1) {
-    try {
-      return JSON.parse(text.slice(start, end + 1));
-    } catch (_) {}
+  if (fenced) {
+    try { return JSON.parse(fenced[1].trim()); } catch (_) {}
   }
 
-  // Response was cut off — walk backwards from the last valid } to find the
-  // largest prefix that parses cleanly. Handles token-limit truncation mid-field.
-  if (start !== -1) {
-    let closePos = text.lastIndexOf('}');
-    while (closePos > start) {
-      try {
-        const candidate = text.slice(start, closePos + 1);
-        const parsed = JSON.parse(candidate);
-        logger.warn(
-          `[Analyzer] Response truncated — parsed partial JSON (${candidate.length} of ${text.length} chars). ` +
-          `Some fields may be missing.`
-        );
-        return parsed;
-      } catch (_) {
-        closePos = text.lastIndexOf('}', closePos - 1);
-      }
+  // 2. Aggressively strip everything before the first { and after the last }
+  //    This handles prose preambles, trailing commentary, or partial fences.
+  const start = text.indexOf('{');
+  const end   = text.lastIndexOf('}');
+  if (start === -1) throw new Error('Could not extract JSON from Claude response — no { found');
+
+  const stripped = (start !== -1 && end > start) ? text.slice(start, end + 1) : text.slice(start);
+
+  // 3. Try parsing the stripped text
+  try {
+    return JSON.parse(stripped);
+  } catch (_) {}
+
+  // 4. Response was cut off — walk backwards from the last valid } to find the
+  //    largest prefix that parses cleanly. Handles token-limit truncation mid-field.
+  let closePos = stripped.lastIndexOf('}');
+  while (closePos > 0) {
+    try {
+      const candidate = stripped.slice(0, closePos + 1);
+      const parsed = JSON.parse(candidate);
+      logger.warn(
+        `[Analyzer] Response truncated — parsed partial JSON (${candidate.length} of ${text.length} chars). ` +
+        `Some fields may be missing.`
+      );
+      return parsed;
+    } catch (_) {
+      closePos = stripped.lastIndexOf('}', closePos - 1);
     }
   }
 
@@ -315,7 +316,7 @@ async function run(scoredVideos, transcriptions = {}, ownPostPerformance = [], p
     logger.info('[Analyzer] JSON parsed successfully.');
   } catch (err) {
     logger.error(`[Analyzer] JSON parse failed: ${err.message}`);
-    logger.error('[Analyzer] Raw response (first 500 chars):', rawResponse.slice(0, 500));
+    logger.error('[Analyzer] Raw response (first 2000 chars):', rawResponse.slice(0, 2000));
     throw new Error(`Claude returned unparseable response: ${err.message}`);
   }
 
