@@ -4,15 +4,15 @@ const { ApifyClient } = require('apify-client');
 const fse    = require('fs-extra');
 const path   = require('path');
 const logger = require('./logger');
-const db     = require('./database');
+const { DATA_DIR } = require('./config');
 
 // ─── Config ───────────────────────────────────────────────────────────────────
 const EATROLLIN_HANDLE     = 'eatrollin';
 const TIKTOK_ACTOR         = 'clockworks/tiktok-scraper';
 const INSTAGRAM_ACTOR      = 'apify/instagram-scraper';
 
-const PERF_HISTORY_PATH    = path.join(__dirname, '..', 'data', 'performance-history.json');
-const APPROVAL_HISTORY_PATH = path.join(__dirname, '..', 'data', 'approval-history.json');
+const PERF_HISTORY_PATH     = path.join(DATA_DIR, 'performance-history.json');
+const APPROVAL_HISTORY_PATH = path.join(DATA_DIR, 'approval-history.json');
 
 // Checkpoint windows in hours
 const CHECKPOINT_24H_MIN   = 22;    // record 24h metrics if post is >= 22h old
@@ -120,9 +120,6 @@ async function scrapeEatrollinInstagram() {
 
 // ─── Load persisted data ──────────────────────────────────────────────────────
 async function loadHistory() {
-  // MongoDB primary — fall back to file if unavailable or empty
-  const mongoHistory = await db.getPerformanceHistory().catch(() => null);
-  if (mongoHistory) return mongoHistory;
   try {
     return await fse.readJson(PERF_HISTORY_PATH);
   } catch {
@@ -131,9 +128,6 @@ async function loadHistory() {
 }
 
 async function loadApprovals() {
-  // MongoDB primary — fall back to file if unavailable or empty
-  const mongoHistory = await db.getApprovalHistory().catch(() => null);
-  if (mongoHistory) return mongoHistory;
   try {
     return await fse.readJson(APPROVAL_HISTORY_PATH);
   } catch {
@@ -414,11 +408,9 @@ async function run() {
     updatedAt: new Date().toISOString(),
     posts:     Object.values(existingMap),
   };
+  await fse.ensureDir(path.dirname(PERF_HISTORY_PATH));
   await fse.writeJson(PERF_HISTORY_PATH, updatedHistory, { spaces: 2 });
   logger.info(`[LearningLoop] Performance history saved → ${PERF_HISTORY_PATH}`);
-  await db.savePerformancePosts(Object.values(existingMap)).catch(err =>
-    logger.warn(`[LearningLoop] MongoDB save failed (file backup intact): ${err.message}`)
-  );
 
   // ── Build learning context for analyzer ───────────────────────────────────
   const learningContext = buildLearningContext(updatedHistory, approvals);

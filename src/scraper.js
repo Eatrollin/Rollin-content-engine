@@ -4,6 +4,7 @@ const { ApifyClient } = require('apify-client');
 const fse = require('fs-extra');
 const path = require('path');
 const logger = require('./logger');
+const { DATA_DIR } = require('./config');
 
 // ─── TikTok sources ───────────────────────────────────────────────────────────
 // Add/remove hashtags here. TIKTOK_HASHTAG_MAX controls results per hashtag run.
@@ -309,7 +310,7 @@ function logCostEstimate(counts) {
 
 // ─── Main ─────────────────────────────────────────────────────────────────────
 async function run(dateString) {
-  const outputPath = path.join(__dirname, '..', 'raw-data', `${dateString}.json`);
+  const outputPath = path.join(DATA_DIR, 'raw-data', `${dateString}.json`);
 
   logger.info('[Scraper] ─────────────────────────────────────────────────');
   logger.info('[Scraper] Launching all scrapers in parallel');

@@ -3,9 +3,7 @@ require('dotenv').config();
 const Anthropic = require('@anthropic-ai/sdk');
 const fse       = require('fs-extra');
 const path      = require('path');
-const os        = require('os');
 const logger    = require('./logger');
-const db        = require('./database');
 
 // ─── Config ───────────────────────────────────────────────────────────────────
 const MODEL              = 'claude-sonnet-4-6';
@@ -383,11 +381,6 @@ async function run(trendAnalysis, scoredVideos, dateString, outputsBase) {
 
     saved.push(rec);
   }
-
-  // ── Save to MongoDB (primary store) ──────────────────────────────────────
-  await db.saveRecommendations(saved, dateString).catch(err =>
-    logger.warn(`[Recommender] MongoDB save failed (file backup intact): ${err.message}`)
-  );
 
   // ── Summary log ───────────────────────────────────────────────────────────
   logger.info('[Recommender] ─────────────────────────────────────────────');

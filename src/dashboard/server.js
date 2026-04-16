@@ -4,21 +4,20 @@ const express    = require('express');
 const http       = require('http');
 const { Server } = require('socket.io');
 const path       = require('path');
-const os         = require('os');
 const fse        = require('fs-extra');
 const { exec }   = require('child_process');
 const logger     = require('../logger');
+const { DATA_DIR } = require('../config');
 
 const approvalManager = require('../approvalManager');
 const higgsfield      = require('../higgsfield');
 const kpiScorer       = require('../kpiScorer');
-const db              = require('../database');
 
 // ─── Config ───────────────────────────────────────────────────────────────────
 const PORT         = parseInt(process.env.DASHBOARD_PORT || '3000', 10);
-const OUTPUTS_BASE = process.env.OUTPUTS_PATH || path.join(os.homedir(), 'Desktop', 'rollin-outputs');
-const RAW_DATA_DIR = path.join(__dirname, '..', '..', 'raw-data');
-const PERF_HISTORY = path.join(__dirname, '..', '..', 'data', 'performance-history.json');
+const OUTPUTS_BASE = path.join(DATA_DIR, 'outputs');
+const RAW_DATA_DIR = path.join(DATA_DIR, 'raw-data');
+const PERF_HISTORY = path.join(DATA_DIR, 'performance-history.json');
 
 // ─── App setup ────────────────────────────────────────────────────────────────
 const app    = express();
@@ -40,13 +39,8 @@ function dateString(daysAgo = 0) {
   return d.toISOString().slice(0, 10);
 }
 
-// Load all recommendations for a given date — MongoDB primary, files fallback
+// Load all recommendations for a given date from the file system
 async function loadRecs(date) {
-  const mongoRecs = await db.getRecommendations(date).catch(() => null);
-  if (mongoRecs && mongoRecs.length > 0) {
-    return mongoRecs.sort((a, b) => (a.rank || 99) - (b.rank || 99));
-  }
-  // File fallback
   const recs = [];
   for (const tier of ['high', 'medium', 'low']) {
     const dir = path.join(OUTPUTS_BASE, date, tier);
@@ -62,11 +56,8 @@ async function loadRecs(date) {
   return recs.sort((a, b) => (a.rank || 99) - (b.rank || 99));
 }
 
-// Load KPI-passing videos for a date — MongoDB primary, files fallback
+// Load KPI-passing videos for a date from raw-data files
 async function loadKpiVideos(date) {
-  const mongoVideos = await db.getKpiVideos(date).catch(() => null);
-  if (mongoVideos !== null) return mongoVideos;
-  // File fallback
   const p = path.join(RAW_DATA_DIR, `${date}.json`);
   if (!(await fse.pathExists(p))) return [];
   try {
@@ -88,11 +79,8 @@ async function loadKpiVideos(date) {
   } catch { return []; }
 }
 
-// Load raw scrape summary for a date — MongoDB primary, files fallback
+// Load raw scrape summary for a date from raw-data files
 async function loadScrapeStats(date) {
-  const mongoStats = await db.getScrapeStats(date).catch(() => null);
-  if (mongoStats) return mongoStats;
-  // File fallback
   const p = path.join(RAW_DATA_DIR, `${date}.json`);
   if (!(await fse.pathExists(p))) return null;
   try {
@@ -101,11 +89,10 @@ async function loadScrapeStats(date) {
   } catch { return null; }
 }
 
-// Load last 7 days of @eatrollin performance for the line chart — MongoDB primary, files fallback
+// Load last 7 days of @eatrollin performance for the line chart
 async function loadSevenDayPerf() {
   try {
-    const mongoHistory = await db.getPerformanceHistory().catch(() => null);
-    const history = mongoHistory || await fse.readJson(PERF_HISTORY).catch(() => ({ posts: [] }));
+    const history = await fse.readJson(PERF_HISTORY).catch(() => ({ posts: [] }));
     const result  = [];
     for (let i = 6; i >= 0; i--) {
       const date  = dateString(i);
@@ -122,22 +109,21 @@ async function loadSevenDayPerf() {
 // ─── API: full dashboard state ────────────────────────────────────────────────
 app.get('/api/state', async (req, res) => {
   try {
-    const today    = req.query.date || todayString();
+    const today     = req.query.date || todayString();
     const yesterday = dateString(1);
 
-    const [recs, scrapeStats, scrapeYesterday, approvalHistory, mongoPerf, sevenDay, kpiVideos] = await Promise.all([
+    const [recs, scrapeStats, scrapeYesterday, approvalHistory, sevenDay, kpiVideos] = await Promise.all([
       loadRecs(today),
       loadScrapeStats(today),
       loadScrapeStats(yesterday),
       approvalManager.getApprovalHistory(),
-      db.getPerformanceHistory().catch(() => null),
       loadSevenDayPerf(),
       loadKpiVideos(today),
     ]);
-    // Performance history: MongoDB primary, file fallback
-    const perfHistory = mongoPerf || await fse.readJson(PERF_HISTORY).catch(() => ({ posts: [] }));
 
-    const todayApprovals = approvalHistory.decisions.filter(d => d.date === today && d.decision === 'approved').length;
+    const perfHistory = await fse.readJson(PERF_HISTORY).catch(() => ({ posts: [] }));
+
+    const todayApprovals  = approvalHistory.decisions.filter(d => d.date === today && d.decision === 'approved').length;
     const todayRejections = approvalHistory.decisions.filter(d => d.date === today && d.decision === 'rejected').length;
 
     // KPI score distribution buckets
@@ -157,15 +143,19 @@ app.get('/api/state', async (req, res) => {
     const topKeyword  = Object.entries(tagCounts).sort((a,b) => b[1]-a[1])[0]?.[0] || '—';
 
     // Tier cluster for doughnut
-    const tierCounts = { high: recs.filter(r=>r.tier==='high').length, medium: recs.filter(r=>r.tier==='medium').length, low: recs.filter(r=>r.tier==='low').length };
+    const tierCounts = {
+      high:   recs.filter(r => r.tier === 'high').length,
+      medium: recs.filter(r => r.tier === 'medium').length,
+      low:    recs.filter(r => r.tier === 'low').length,
+    };
 
     // @eatrollin day-over-day
     const ownPosts = perfHistory.posts || [];
-    const ydPosts  = ownPosts.filter(p => { if(!p.postedAt) return false; const h=(Date.now()-new Date(p.postedAt).getTime())/3600000; return h>=24&&h<=48; });
-    const d2Posts  = ownPosts.filter(p => { if(!p.postedAt) return false; const h=(Date.now()-new Date(p.postedAt).getTime())/3600000; return h>=48&&h<=72; });
-    const ydAvg    = ydPosts.length ? ydPosts.reduce((s,p)=>s+(p.latestMetrics?.kpiScore||0),0)/ydPosts.length : null;
-    const d2Avg    = d2Posts.length ? d2Posts.reduce((s,p)=>s+(p.latestMetrics?.kpiScore||0),0)/d2Posts.length : null;
-    const changePct = (ydAvg && d2Avg && d2Avg > 0) ? ((ydAvg-d2Avg)/d2Avg*100).toFixed(1) : null;
+    const ydPosts  = ownPosts.filter(p => { if (!p.postedAt) return false; const h = (Date.now() - new Date(p.postedAt).getTime()) / 3600000; return h >= 24 && h <= 48; });
+    const d2Posts  = ownPosts.filter(p => { if (!p.postedAt) return false; const h = (Date.now() - new Date(p.postedAt).getTime()) / 3600000; return h >= 48 && h <= 72; });
+    const ydAvg    = ydPosts.length ? ydPosts.reduce((s,p) => s + (p.latestMetrics?.kpiScore || 0), 0) / ydPosts.length : null;
+    const d2Avg    = d2Posts.length ? d2Posts.reduce((s,p) => s + (p.latestMetrics?.kpiScore || 0), 0) / d2Posts.length : null;
+    const changePct = (ydAvg && d2Avg && d2Avg > 0) ? ((ydAvg - d2Avg) / d2Avg * 100).toFixed(1) : null;
 
     res.json({
       date: today,
@@ -194,11 +184,11 @@ app.get('/api/state', async (req, res) => {
         .map(r => ({ recId: r.id, title: r.title, tier: r.tier, ...r.higgsfield })),
       history: ownPosts
         .filter(p => p.checkpoints?.['72h']?.isFinal)
-        .sort((a,b) => new Date(b.postedAt)-new Date(a.postedAt))
+        .sort((a,b) => new Date(b.postedAt) - new Date(a.postedAt))
         .slice(0, 20)
         .map(p => ({
           id: p.id, platform: p.platform, url: p.url,
-          caption: p.caption?.slice(0,150),
+          caption: p.caption?.slice(0, 150),
           postedAt: p.postedAt,
           kpi72h: p.checkpoints['72h'].kpiScore,
           views72h: p.checkpoints['72h'].viewCount,
@@ -264,7 +254,6 @@ function emit(event, data) {
 
 // ─── Start ────────────────────────────────────────────────────────────────────
 function start() {
-  db.connect();   // non-blocking — DB reads fall back to files if this fails
   server.listen(PORT, () => {
     logger.info(`[Dashboard] Running at http://localhost:${PORT}`);
     // Auto-open browser (Windows: start, macOS: open, Linux: xdg-open)
