@@ -3,6 +3,7 @@ require('dotenv').config();
 const Anthropic = require('@anthropic-ai/sdk');
 const fse       = require('fs-extra');
 const path      = require('path');
+const os        = require('os');
 const logger    = require('./logger');
 
 // ─── Config ───────────────────────────────────────────────────────────────────

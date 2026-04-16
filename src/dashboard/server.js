@@ -256,13 +256,14 @@ function emit(event, data) {
 function start() {
   server.listen(PORT, () => {
     logger.info(`[Dashboard] Running at http://localhost:${PORT}`);
-    // Auto-open browser (Windows: start, macOS: open, Linux: xdg-open)
-    const cmd = process.platform === 'win32' ? `start http://localhost:${PORT}`
-              : process.platform === 'darwin' ? `open http://localhost:${PORT}`
-              : `xdg-open http://localhost:${PORT}`;
-    exec(cmd, (err) => {
-      if (err) logger.warn(`[Dashboard] Could not auto-open browser: ${err.message}`);
-    });
+    if (process.env.NODE_ENV !== 'production') {
+      try {
+        const cmd = process.platform === 'win32' ? `start http://localhost:${PORT}`
+                  : process.platform === 'darwin' ? `open http://localhost:${PORT}`
+                  : `xdg-open http://localhost:${PORT}`;
+        exec(cmd);
+      } catch (_) { /* silent — browser auto-open is best-effort on dev only */ }
+    }
   });
 }
 
