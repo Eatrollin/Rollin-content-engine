@@ -352,6 +352,7 @@ async function run(trendAnalysis, scoredVideos, dateString, outputsBase) {
       date:            dateString,
       approved:        false,
       rejected:        false,
+      footageMatch:    { type: 'pending', matchedFiles: [], seedancePrompt: '', shotList: [], shootDirections: '' },
     }));
 
   // ── Count by tier ─────────────────────────────────────────────────────────

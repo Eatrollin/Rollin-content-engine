@@ -26,6 +26,148 @@ document.addEventListener('DOMContentLoaded', () => {
   socket.on('pipeline:error', () => setStatus('error'));
 });
 
+/* ─── Rec Detail Modal ──────────────────────────────────────────────────────── */
+async function openRecDetail(recId) {
+  try {
+    const res = await fetch(`/api/recommendation/${recId}?date=${TODAY}`);
+    if (!res.ok) { showToast('Could not load recommendation details', 'err'); return; }
+    const rec = await res.json();
+    showRecDetailModal(rec);
+  } catch (err) {
+    showToast('Failed to load details: ' + err.message, 'err');
+  }
+}
+
+function closeRecDetail() {
+  const el = document.getElementById('rec-detail-modal');
+  if (el) el.remove();
+}
+
+function showRecDetailModal(rec) {
+  const existing = document.getElementById('rec-detail-modal');
+  if (existing) existing.remove();
+
+  const overlay = document.createElement('div');
+  overlay.id        = 'rec-detail-modal';
+  overlay.className = 'modal-overlay';
+  overlay.innerHTML = buildRecDetailHTML(rec);
+  document.body.appendChild(overlay);
+
+  overlay.addEventListener('click', e => { if (e.target === overlay) closeRecDetail(); });
+}
+
+function buildRecDetailHTML(rec) {
+  const tier     = rec.tier || 'low';
+  const label    = rec.label === 'AI-FLAGGED' ? 'AI-FLAGGED' : 'KPI-CONFIRMED';
+  const labelCls = label === 'AI-FLAGGED' ? 'label-ai' : 'label-kpi';
+  const brief    = rec.contentBrief    || {};
+  const hf       = rec.higgsfieldBrief || {};
+  const fm       = rec.footageMatch    || { type: 'pending' };
+
+  const scriptHtml = (brief.scriptOutline || []).map(l =>
+    `<div class="detail-script-beat">${escHtml(l)}</div>`
+  ).join('');
+
+  const tagsHtml = (brief.hashtagSet || []).map(t =>
+    `<span class="brief-tag">#${t}</span>`
+  ).join('');
+
+  let footageHtml = '';
+  if (fm.type === 'seedance-ready') {
+    const filesHtml = (fm.matchedFiles || []).map(f =>
+      `<div class="detail-file-item">▸ ${escHtml(f)}</div>`
+    ).join('');
+    footageHtml = `
+      <div class="detail-match-badge detail-match-seedance">SEEDANCE-READY</div>
+      ${filesHtml ? `<div class="detail-sub-label">MATCHED FILES</div><div class="detail-file-list">${filesHtml}</div>` : ''}
+      <div class="detail-sub-label">SEEDANCE PROMPT</div>
+      <div class="detail-copybox" data-copy="${escAttr(fm.seedancePrompt)}" onclick="copyBoxClick(this)">${escHtml(fm.seedancePrompt || '')}<span class="detail-copy-hint">CLICK TO COPY</span></div>`;
+  } else if (fm.type === 'needs-shoot') {
+    const shotsHtml = (fm.shotList || []).map(s =>
+      `<div class="detail-shot-item">▸ ${escHtml(s)}</div>`
+    ).join('');
+    const hfText = [
+      hf.sceneDescription ? `Scene: ${hf.sceneDescription}` : '',
+      hf.styleDirection   ? `Style: ${hf.styleDirection}`   : '',
+      hf.mood             ? `Mood: ${hf.mood}`               : '',
+      hf.durationSeconds  ? `Duration: ${hf.durationSeconds}s` : '',
+      hf.audioDirection   ? `Audio: ${hf.audioDirection}`   : '',
+    ].filter(Boolean).join('\n');
+    footageHtml = `
+      <div class="detail-match-badge detail-match-shoot">NEEDS SHOOT</div>
+      ${shotsHtml ? `<div class="detail-sub-label">SHOT LIST</div><div class="detail-shot-list">${shotsHtml}</div>` : ''}
+      ${fm.shootDirections ? `<div class="detail-sub-label">SHOOT DIRECTIONS</div><div class="detail-body-text">${escHtml(fm.shootDirections)}</div>` : ''}
+      <div class="detail-sub-label">HIGGSFIELD PROMPT</div>
+      <div class="detail-copybox" data-copy="${escAttr(hfText)}" onclick="copyBoxClick(this)">${escHtml(hfText)}<span class="detail-copy-hint">CLICK TO COPY</span></div>`;
+  } else {
+    footageHtml = `<div class="detail-pending-note">Run pipeline to generate footage match</div>`;
+  }
+
+  return `
+<div class="rec-detail-panel">
+  <div class="detail-header">
+    <div class="detail-header-meta">
+      <span class="rank-badge">#${rec.rank || '?'}</span>
+      <span class="tier-badge tier-${tier}">${tier.toUpperCase()}</span>
+      <span class="label-badge ${labelCls}">${label}</span>
+      <span class="confidence">${rec.confidenceScore}/10</span>
+    </div>
+    <button class="detail-close" onclick="closeRecDetail()">✕</button>
+  </div>
+  <div class="detail-title">${escHtml(rec.title || '')}</div>
+  <div class="detail-body">
+
+    <div class="detail-section">
+      <div class="detail-section-label">TREND SUMMARY</div>
+      <div class="detail-body-text">${escHtml(rec.trendSummary || '')}</div>
+    </div>
+
+    <div class="detail-section">
+      <div class="detail-section-label">CONTENT BRIEF</div>
+      ${brief.hook ? `<div class="detail-row"><span class="detail-label">HOOK</span><span class="detail-value">${escHtml(brief.hook)}</span></div>` : ''}
+      ${scriptHtml ? `<div class="detail-row"><span class="detail-label">SCRIPT</span><div class="detail-value">${scriptHtml}</div></div>` : ''}
+      ${brief.captionDirection ? `<div class="detail-row"><span class="detail-label">CAPTION DIR</span><span class="detail-value">${escHtml(brief.captionDirection)}</span></div>` : ''}
+      ${brief.sampleCaption ? `<div class="detail-row"><span class="detail-label">CAPTION</span><span class="detail-value detail-italic">"${escHtml(brief.sampleCaption)}"</span></div>` : ''}
+      ${tagsHtml ? `<div class="detail-row"><span class="detail-label">TAGS</span><div class="detail-value brief-tags">${tagsHtml}</div></div>` : ''}
+      ${brief.callToAction ? `<div class="detail-row"><span class="detail-label">CTA</span><span class="detail-value">${escHtml(brief.callToAction)}</span></div>` : ''}
+    </div>
+
+    ${rec.rawFootageNote ? `
+    <div class="detail-section">
+      <div class="detail-section-label">RAW FOOTAGE NOTE</div>
+      <div class="detail-body-text">${escHtml(rec.rawFootageNote)}</div>
+    </div>` : ''}
+
+    ${(hf.sceneDescription || hf.styleDirection) ? `
+    <div class="detail-section">
+      <div class="detail-section-label">HIGGSFIELD BRIEF</div>
+      ${hf.sceneDescription ? `<div class="detail-row"><span class="detail-label">SCENE</span><span class="detail-value">${escHtml(hf.sceneDescription)}</span></div>` : ''}
+      ${hf.styleDirection   ? `<div class="detail-row"><span class="detail-label">STYLE</span><span class="detail-value">${escHtml(hf.styleDirection)}</span></div>`   : ''}
+      ${hf.mood             ? `<div class="detail-row"><span class="detail-label">MOOD</span><span class="detail-value">${escHtml(hf.mood)}</span></div>`             : ''}
+      ${hf.durationSeconds  ? `<div class="detail-row"><span class="detail-label">DURATION</span><span class="detail-value">${hf.durationSeconds}s</span></div>`   : ''}
+      ${hf.audioDirection   ? `<div class="detail-row"><span class="detail-label">AUDIO</span><span class="detail-value">${escHtml(hf.audioDirection)}</span></div>` : ''}
+    </div>` : ''}
+
+    ${rec.whyItWillWork ? `
+    <div class="detail-section">
+      <div class="detail-section-label">WHY IT WILL WORK</div>
+      <div class="detail-body-text">${escHtml(rec.whyItWillWork)}</div>
+    </div>` : ''}
+
+    <div class="detail-section">
+      <div class="detail-section-label">FOOTAGE MATCH</div>
+      ${footageHtml}
+    </div>
+
+  </div>
+</div>`;
+}
+
+function copyBoxClick(el) {
+  const text = el.getAttribute('data-copy') || '';
+  navigator.clipboard.writeText(text).then(() => showToast('Copied to clipboard', 'ok')).catch(() => showToast('Copy failed', 'err'));
+}
+
 /* ─── Load state from API ───────────────────────────────────────────────────── */
 async function loadState() {
   try {
@@ -292,7 +434,7 @@ function buildRecCard(rec) {
     ? `<div class="decision-label decision-approved">✓ APPROVED${approvalNote}</div>`
     : isRejected
     ? `<div class="decision-label decision-rejected">✗ REJECTED — ${escHtml(rec.rejectionNote || '').slice(0, 60)}</div>`
-    : `<div class="rec-footer">
+    : `<div class="rec-footer" onclick="event.stopPropagation()">
          <input type="text" id="approve-note-${rec.id}" class="approve-note-input" placeholder="Why are you approving this? (optional)" />
          <div class="rec-footer-actions">
            <button class="btn-approve" onclick="handleApprove('${rec.id}','${tier}')">APPROVE</button>
@@ -301,7 +443,7 @@ function buildRecCard(rec) {
        </div>`;
 
   return `
-<div class="rec-card ${cardCls}" id="card-${rec.id}">
+<div class="rec-card ${cardCls}" id="card-${rec.id}" onclick="openRecDetail('${rec.id}')">
   <div class="rec-header">
     <span class="rank-badge">#${rec.rank || '?'}</span>
     <span class="tier-badge tier-${tier}">${tier.toUpperCase()}</span>

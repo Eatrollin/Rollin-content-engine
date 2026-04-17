@@ -200,6 +200,29 @@ app.get('/api/state', async (req, res) => {
   }
 });
 
+// ─── API: single recommendation ──────────────────────────────────────────────
+app.get('/api/recommendation/:recId', async (req, res) => {
+  const { recId } = req.params;
+  const date      = req.query.date || todayString();
+  const dateDir   = path.join(OUTPUTS_BASE, date);
+  try {
+    for (const tier of ['high', 'medium', 'low']) {
+      const tierDir = path.join(dateDir, tier);
+      if (!(await fse.pathExists(tierDir))) continue;
+      const files = (await fse.readdir(tierDir)).filter(f => f.endsWith('.json'));
+      for (const f of files) {
+        try {
+          const data = await fse.readJson(path.join(tierDir, f));
+          if (data.id === recId) return res.json(data);
+        } catch { /* skip corrupt file */ }
+      }
+    }
+    res.status(404).json({ error: 'Recommendation not found' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ─── API: dates ───────────────────────────────────────────────────────────────
 app.get('/api/dates', async (req, res) => {
   try {

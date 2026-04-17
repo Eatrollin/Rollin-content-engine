@@ -87,7 +87,7 @@ Respond ONLY with a valid JSON object. No markdown code blocks. No prose before 
 CRITICAL: Your entire response must be a single valid JSON object. Start your response with { and end with }. Do not include any text, explanation, or markdown before or after the JSON.`;
 
 // ─── Build user prompt from pipeline data ─────────────────────────────────────
-function buildUserPrompt(scoredVideos, transcriptions, ownPostPerformance, perplexityFindings = null, trendingSounds = []) {
+async function buildUserPrompt(scoredVideos, transcriptions, ownPostPerformance, perplexityFindings = null, trendingSounds = []) {
   const aboveThreshold = scoredVideos.filter((v) => v.kpi?.passedKpiThreshold);
   const belowThreshold = scoredVideos.filter((v) => !v.kpi?.passedKpiThreshold);
 
@@ -144,6 +144,48 @@ function buildUserPrompt(scoredVideos, transcriptions, ownPostPerformance, perpl
         }))
       : null;
 
+  // ── Approval learning — read Chase's approval/rejection history ───────────
+  let approvalLearning = null;
+  try {
+    const fse  = require('fs-extra');
+    const path = require('path');
+    const { DATA_DIR } = require('./config');
+    const historyPath = path.join(DATA_DIR, 'approval-history.json');
+    const history = await fse.readJson(historyPath).catch(() => ({ decisions: [] }));
+    const decisions = history.decisions || [];
+
+    const approved = decisions
+      .filter(d => d.decision === 'approved' && d.approvalPattern)
+      .slice(-20)
+      .map(d => ({
+        title:           d.approvalPattern.title,
+        tier:            d.approvalPattern.tier,
+        contentFormat:   d.approvalPattern.contentFormat,
+        hook:            d.approvalPattern.hook,
+        hashtags:        d.approvalPattern.hashtags,
+        confidenceScore: d.approvalPattern.confidenceScore,
+        note:            d.approvalPattern.note || '',
+        approvedAt:      d.approvedAt,
+      }));
+
+    const rejected = decisions
+      .filter(d => d.decision === 'rejected' && d.rejectionPattern)
+      .slice(-20)
+      .map(d => ({
+        title:         d.rejectionPattern.title,
+        tier:          d.rejectionPattern.tier,
+        contentFormat: d.rejectionPattern.contentFormat,
+        reason:        d.rejectionPattern.reason,
+        note:          d.note || '',
+        hashtags:      d.rejectionPattern.hashtags,
+        rejectedAt:    d.rejectedAt,
+      }));
+
+    if (approved.length > 0 || rejected.length > 0) {
+      approvalLearning = { approved, rejected };
+    }
+  } catch (_) {}
+
   // ── Assemble final prompt ──────────────────────────────────────────────────
   const payload = {
     analysisDate: new Date().toISOString(),
@@ -177,6 +219,7 @@ function buildUserPrompt(scoredVideos, transcriptions, ownPostPerformance, perpl
           })),
         }
       : 'No Perplexity research available for this run.',
+    approvalLearning: approvalLearning || 'No approval history yet — first run.',
     instructions: [
       'Analyze the highPerformingVideos for behavioral patterns — actions, formats, visual styles, spoken language, sounds.',
       'A CONFIRMED trend requires the pattern to appear in 1 or more highPerformingVideos — any significant pattern should be confirmed.',
@@ -185,6 +228,10 @@ function buildUserPrompt(scoredVideos, transcriptions, ownPostPerformance, perpl
       'Connect every insight to how @eatrollin (premium Asian fusion ghost kitchen, Detroit) can execute it.',
       'If rollinOwnPerformance data is present, factor it in — what has worked or not worked on @eatrollin in the past?',
       'If perplexityResearch findings are present, treat them as additional validated context — use them to strengthen or challenge trends you identify from the video data.',
+      'If approvalLearning.approved is present, study each entry carefully — the note field contains Chase\'s exact words explaining WHY he approved it. Make MORE recommendations like these. Match the content format, hook style, humor, energy, and approach he described.',
+      'If approvalLearning.rejected is present, study each entry carefully — the note field contains Chase\'s exact words explaining WHY he rejected it. Never recommend anything matching this feedback. Treat it as a hard constraint.',
+      'Chase\'s written notes are the highest-priority signal in this entire dataset. A note like "love the dry humor angle" means every run should include dry humor content. A note like "too polished, not authentic" means never recommend over-produced content again.',
+      'Pattern match across multiple approvals and rejections to identify Chase\'s taste profile — what formats, tones, styles, and approaches consistently get approved vs rejected.',
       'Respond ONLY with the JSON schema defined in your system prompt. No prose, no markdown.',
     ],
   };
@@ -286,7 +333,7 @@ async function run(scoredVideos, transcriptions = {}, ownPostPerformance = [], p
     return normalizeResponse({}, []);
   }
 
-  const userPrompt = buildUserPrompt(scoredVideos, transcriptions, ownPostPerformance, perplexityFindings, trendingSounds);
+  const userPrompt = await buildUserPrompt(scoredVideos, transcriptions, ownPostPerformance, perplexityFindings, trendingSounds);
   const promptTokenEstimate = Math.round(userPrompt.length / 4);
   logger.info(`[Analyzer] Prompt size: ~${promptTokenEstimate} tokens`);
 

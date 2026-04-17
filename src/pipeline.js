@@ -74,6 +74,8 @@ async function run({ testMode = false } = {}) {
     ownPostPerformance: [],
     perplexityFindings: null,
     trendingSounds: [],
+    footageLibrary: [],
+    seedanceJobs: [],
     emailSent: false,
   };
 
@@ -163,6 +165,27 @@ async function run({ testMode = false } = {}) {
       state.outputsBase
     );
     logger.info(`Generated ${state.recommendations.length} recommendations.`);
+  });
+
+  // ── Step 7.5: Footage Scanning (Google Drive) ─────────────────────────────
+  await runStep('Step 7.5 — Footage Scanning (Google Drive)', async () => {
+    const footageScanner = require('./footageScanner');
+    state.footageLibrary = await footageScanner.run();
+    logger.info(`Footage library: ${state.footageLibrary.length} file(s) scanned from Drive.`);
+  });
+
+  // ── Step 7.6: Footage Matching + Seedance Submission ──────────────────────
+  await runStep('Step 7.6 — Footage Matching + Seedance Submission', async () => {
+    const footageMatcher = require('./footageMatcher');
+    const seedance       = require('./seedance');
+
+    state.recommendations = await footageMatcher.run(state.recommendations, state.footageLibrary);
+    state.seedanceJobs    = await seedance.run(state.recommendations, state.footageLibrary);
+
+    const matched = state.recommendations.filter(r => r.footageMatch?.type === 'seedance-ready').length;
+    const shoots  = state.recommendations.filter(r => r.footageMatch?.type === 'needs-shoot').length;
+    logger.info(`Footage matched: ${matched} seedance-ready, ${shoots} needs-shoot.`);
+    logger.info(`Seedance jobs submitted: ${state.seedanceJobs.length}`);
   });
 
   // ── Step 8: Higgsfield Video Generation ───────────────────────────────────

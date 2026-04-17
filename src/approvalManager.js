@@ -141,6 +141,17 @@ async function approve(recId, date, tier, note = '') {
     caption:             found.data.contentBrief?.sampleCaption || '',
     hashtagSet:          found.data.contentBrief?.hashtagSet    || [],
     sourceTrendId:       found.data.sourceTrendId || '',
+    approvalPattern: {
+      title:           found.data.title,
+      tier:            found.tier,
+      label:           found.data.label,
+      trendSummary:    found.data.trendSummary?.slice(0, 200) || '',
+      contentFormat:   found.data.higgsfieldBrief?.styleDirection || '',
+      hashtags:        found.data.contentBrief?.hashtagSet || [],
+      hook:            found.data.contentBrief?.hook || '',
+      confidenceScore: found.data.confidenceScore || null,
+      note:            note || '',
+    },
   };
   history.decisions.push(decision);
   await saveHistory(history);

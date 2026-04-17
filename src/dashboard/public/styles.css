@@ -207,6 +207,49 @@ body { background: var(--bg); color: var(--white); font-family: var(--font); fon
 #toast.toast-ok  { border-color: var(--approved-bd); }
 #toast.toast-err { border-color: var(--rejected-bd); }
 
+/* ─── Rec card clickable ───────────────────────────────────────────────────── */
+.rec-card { cursor: pointer; }
+
+/* ─── Rec Detail Modal ──────────────────────────────────────────────────────── */
+.rec-detail-panel { background: var(--bg-card); border: 1px solid var(--border-2); border-radius: var(--radius-lg); width: 780px; max-width: 94vw; max-height: 88vh; display: flex; flex-direction: column; overflow: hidden; }
+
+.detail-header { display: flex; align-items: center; justify-content: space-between; padding: 20px 24px 16px; border-bottom: 1px solid var(--border); flex-shrink: 0; }
+.detail-header-meta { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.detail-close { background: transparent; border: 1px solid var(--border-2); color: var(--gray-2); font-size: 13px; width: 28px; height: 28px; border-radius: var(--radius); cursor: pointer; display: flex; align-items: center; justify-content: center; flex-shrink: 0; transition: all 0.15s; }
+.detail-close:hover { border-color: var(--gray-2); color: var(--white); }
+
+.detail-title { font-size: 18px; font-weight: 700; color: var(--white); padding: 16px 24px 0; flex-shrink: 0; line-height: 1.3; }
+
+.detail-body { overflow-y: auto; padding: 16px 24px 24px; display: flex; flex-direction: column; gap: 20px; }
+
+.detail-section { display: flex; flex-direction: column; gap: 10px; }
+.detail-section-label { font-size: 9px; letter-spacing: 0.25em; color: var(--gray-2); font-weight: 700; padding-bottom: 6px; border-bottom: 1px solid var(--border); }
+
+.detail-row { display: flex; gap: 12px; }
+.detail-label { font-size: 9px; letter-spacing: 0.15em; color: var(--gray-3); font-weight: 700; min-width: 70px; padding-top: 2px; flex-shrink: 0; }
+.detail-value { font-size: 13px; color: var(--gray-1); line-height: 1.5; flex: 1; }
+.detail-italic { font-style: italic; color: var(--gray-2); }
+
+.detail-body-text { font-size: 13px; color: var(--gray-1); line-height: 1.6; }
+
+.detail-script-beat { font-size: 12px; color: var(--gray-1); padding: 3px 0; border-bottom: 1px solid var(--border); }
+.detail-script-beat:last-child { border-bottom: none; }
+
+.detail-sub-label { font-size: 9px; letter-spacing: 0.15em; color: var(--gray-3); font-weight: 700; margin-top: 6px; }
+
+.detail-match-badge { display: inline-block; font-size: 9px; letter-spacing: 0.2em; font-weight: 700; padding: 3px 10px; border-radius: 2px; }
+.detail-match-seedance { background: #0a1f0a; color: var(--approved-tx); border: 1px solid var(--approved-bd); }
+.detail-match-shoot    { background: #1a1a0a; color: #c8c86e; border: 1px solid #3a3a0a; }
+
+.detail-file-list, .detail-shot-list { display: flex; flex-direction: column; gap: 3px; margin-top: 4px; }
+.detail-file-item, .detail-shot-item { font-size: 12px; color: var(--gray-2); font-family: var(--mono); }
+
+.detail-copybox { position: relative; background: var(--bg-card-2); border: 1px solid var(--border-2); border-radius: var(--radius); padding: 12px 14px; font-size: 12px; color: var(--gray-1); font-family: var(--mono); white-space: pre-wrap; word-break: break-word; line-height: 1.5; cursor: pointer; margin-top: 6px; transition: border-color 0.15s; }
+.detail-copybox:hover { border-color: var(--gold-dim); }
+.detail-copy-hint { display: block; font-size: 9px; letter-spacing: 0.15em; color: var(--gold-dim); margin-top: 8px; font-family: var(--font); }
+
+.detail-pending-note { font-size: 12px; color: var(--gray-3); font-style: italic; padding: 12px 0; }
+
 /* ─── Scrollbar ────────────────────────────────────────────────────────────── */
 ::-webkit-scrollbar { width: 6px; height: 6px; }
 ::-webkit-scrollbar-track { background: var(--bg); }
