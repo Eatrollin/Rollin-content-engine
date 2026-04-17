@@ -6,7 +6,7 @@ let charts     = {};
 
 /* ─── Init ──────────────────────────────────────────────────────────────────── */
 document.addEventListener('DOMContentLoaded', () => {
-  TODAY = new Date().toISOString().slice(0, 10);
+  TODAY = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Detroit' }).format(new Date());
   document.getElementById('nav-date').textContent = TODAY;
   loadState();
 
