@@ -209,6 +209,21 @@ app.get('/api/state', async (req, res) => {
   }
 });
 
+// ─── API: debug ───────────────────────────────────────────────────────────────
+app.get('/api/debug', async (req, res) => {
+  const fse = require('fs-extra');
+  const path = require('path');
+  const { DATA_DIR } = require('../config');
+  try {
+    const outputsBase = path.join(DATA_DIR, 'outputs');
+    const exists = await fse.pathExists(outputsBase);
+    const dirs = exists ? await fse.readdir(outputsBase) : [];
+    res.json({ DATA_DIR, outputsBase, exists, dirs });
+  } catch (err) {
+    res.json({ error: err.message, DATA_DIR });
+  }
+});
+
 // ─── API: approve ─────────────────────────────────────────────────────────────
 app.post('/api/approve', async (req, res) => {
   const { recId, date, tier, note } = req.body;

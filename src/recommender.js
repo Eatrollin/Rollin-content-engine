@@ -386,6 +386,7 @@ async function run(trendAnalysis, scoredVideos, dateString, outputsBase) {
   // ── Summary log ───────────────────────────────────────────────────────────
   logger.info('[Recommender] ─────────────────────────────────────────────');
   logger.info(`[Recommender] ${saved.length} recommendations saved to ${outputsBase}`);
+  logger.info(`[Recommender] DATA_DIR is: ${require('./config').DATA_DIR}`);
   saved.forEach((r) => {
     logger.info(
       `[Recommender]  #${r.rank} [${r.tier.toUpperCase()}] [${r.label}] "${r.title}" — ${r.confidenceScore}/10`
