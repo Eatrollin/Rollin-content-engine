@@ -29,22 +29,13 @@ app.use(express.static(path.join(__dirname, 'public')));
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 function todayString() {
-  const now = new Date();
-  const detroit = new Date(now.toLocaleString('en-US', { timeZone: 'America/Detroit' }));
-  const yyyy = detroit.getFullYear();
-  const mm = String(detroit.getMonth() + 1).padStart(2, '0');
-  const dd = String(detroit.getDate()).padStart(2, '0');
-  return `${yyyy}-${mm}-${dd}`;
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Detroit' }).format(new Date());
 }
 
 function dateString(daysAgo = 0) {
-  const now = new Date();
-  const detroit = new Date(now.toLocaleString('en-US', { timeZone: 'America/Detroit' }));
-  detroit.setDate(detroit.getDate() - daysAgo);
-  const yyyy = detroit.getFullYear();
-  const mm = String(detroit.getMonth() + 1).padStart(2, '0');
-  const dd = String(detroit.getDate()).padStart(2, '0');
-  return `${yyyy}-${mm}-${dd}`;
+  const d = new Date();
+  d.setDate(d.getDate() - daysAgo);
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Detroit' }).format(d);
 }
 
 // Load all recommendations for a given date from the file system
