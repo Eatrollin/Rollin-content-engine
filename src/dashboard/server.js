@@ -200,6 +200,22 @@ app.get('/api/state', async (req, res) => {
   }
 });
 
+// ─── API: dates ───────────────────────────────────────────────────────────────
+app.get('/api/dates', async (req, res) => {
+  try {
+    const exists = await fse.pathExists(OUTPUTS_BASE);
+    if (!exists) return res.json({ dates: [] });
+    const entries = await fse.readdir(OUTPUTS_BASE);
+    const dates = entries
+      .filter(e => /^\d{4}-\d{2}-\d{2}$/.test(e))
+      .sort()
+      .reverse();
+    res.json({ dates });
+  } catch (err) {
+    res.json({ dates: [] });
+  }
+});
+
 // ─── API: debug ───────────────────────────────────────────────────────────────
 app.get('/api/debug', async (req, res) => {
   const fse = require('fs-extra');

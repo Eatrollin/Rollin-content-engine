@@ -9,6 +9,7 @@ document.addEventListener('DOMContentLoaded', () => {
   TODAY = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Detroit' }).format(new Date());
   document.getElementById('nav-date').textContent = TODAY;
   loadState();
+  loadDateDropdown();
 
   // Socket.io — live updates when pipeline completes or approval changes
   const socket = io();
@@ -34,6 +35,50 @@ async function loadState() {
   } catch (err) {
     console.error('Failed to load state:', err);
     showToast('Could not load data — is the server running?', 'err');
+  }
+}
+
+async function loadDateDropdown() {
+  try {
+    const res   = await fetch('/api/dates');
+    const data  = await res.json();
+    const dates = data.dates || [];
+    if (dates.length <= 1) return; // no dropdown needed if only one date
+
+    // Build dropdown
+    const nav = document.querySelector('.nav-meta');
+    if (!nav) return;
+
+    const wrapper = document.createElement('div');
+    wrapper.style.cssText = 'display:flex;align-items:center;gap:8px;';
+
+    const label = document.createElement('span');
+    label.textContent = 'DATE:';
+    label.style.cssText = 'color:#555;font-size:10px;letter-spacing:.1em;';
+
+    const select = document.createElement('select');
+    select.id = 'date-select';
+    select.style.cssText = 'background:#111;color:#c8a96e;border:1px solid #333;padding:4px 8px;font-size:11px;letter-spacing:.05em;cursor:pointer;outline:none;';
+
+    dates.forEach(d => {
+      const opt = document.createElement('option');
+      opt.value = d;
+      opt.textContent = d;
+      if (d === TODAY) opt.selected = true;
+      select.appendChild(opt);
+    });
+
+    select.addEventListener('change', () => {
+      TODAY = select.value;
+      document.getElementById('nav-date').textContent = TODAY;
+      loadState();
+    });
+
+    wrapper.appendChild(label);
+    wrapper.appendChild(select);
+    nav.insertBefore(wrapper, nav.firstChild);
+  } catch (err) {
+    console.error('Failed to load dates:', err);
   }
 }
 
