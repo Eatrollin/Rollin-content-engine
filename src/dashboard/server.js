@@ -125,28 +125,17 @@ app.get('/api/state', async (req, res) => {
     const todayApprovals  = approvalHistory.decisions.filter(d => d.date === today && d.decision === 'approved').length;
     const todayRejections = approvalHistory.decisions.filter(d => d.date === today && d.decision === 'rejected').length;
 
-    // KPI score distribution buckets
-    const allScores = recs.map(r => r.kpi?.compositeScore || 0);
-    const buckets = { '0.00-0.05': 0, '0.05-0.10': 0, '0.10-0.20': 0, '0.20+': 0 };
-    allScores.forEach(s => {
-      if      (s < 0.05) buckets['0.00-0.05']++;
-      else if (s < 0.10) buckets['0.05-0.10']++;
-      else if (s < 0.20) buckets['0.10-0.20']++;
-      else               buckets['0.20+']++;
-    });
-
-    // Top keyword from today's recs
+    // Top keywords from today's recs
     const allHashtags = recs.flatMap(r => r.contentBrief?.hashtagSet || []);
     const tagCounts   = {};
-    allHashtags.forEach(t => { tagCounts[t] = (tagCounts[t] || 0) + 1; });
-    const topKeyword  = Object.entries(tagCounts).sort((a,b) => b[1]-a[1])[0]?.[0] || '—';
-
-    // Tier cluster for doughnut
-    const tierCounts = {
-      high:   recs.filter(r => r.tier === 'high').length,
-      medium: recs.filter(r => r.tier === 'medium').length,
-      low:    recs.filter(r => r.tier === 'low').length,
-    };
+    allHashtags.forEach(t => {
+      const clean = t.replace(/^#+/, '').toLowerCase().trim();
+      if (clean) tagCounts[clean] = (tagCounts[clean] || 0) + 1;
+    });
+    const topKeywords3 = Object.entries(tagCounts)
+      .sort((a,b) => b[1]-a[1])
+      .slice(0, 3)
+      .map(([tag]) => '#' + tag);
 
     // @eatrollin day-over-day
     const ownPosts = perfHistory.posts || [];
@@ -164,17 +153,12 @@ app.get('/api/state', async (req, res) => {
         instagramCount:  scrapeStats?.instagramCount ?? 0,
         yesterdayTotal:  scrapeYesterday?.totalVideos ?? 0,
         passedKpi:       kpiVideos.length,
-        topKeyword,
+        topKeywords3:    topKeywords3.length > 0 ? topKeywords3 : ['—'],
         dayOverDayPct:   changePct,
         dayOverDayTrend: changePct === null ? 'no-data' : Number(changePct) > 0 ? 'up' : Number(changePct) < 0 ? 'down' : 'flat',
         todayApprovals,
         todayRejections,
         approvalCap: approvalManager.MAX_APPROVALS_PER_DAY,
-      },
-      charts: {
-        kpiDistribution: buckets,
-        tierClusters:    tierCounts,
-        sevenDayPerf:    sevenDay,
       },
       kpiVideos,
       recommendations: recs,

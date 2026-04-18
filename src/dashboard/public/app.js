@@ -2,7 +2,6 @@
 let STATE      = null;
 let TODAY      = null;
 let rejectTarget = null;  // { recId, tier, title }
-let charts     = {};
 
 /* ─── Init ──────────────────────────────────────────────────────────────────── */
 document.addEventListener('DOMContentLoaded', () => {
@@ -148,6 +147,13 @@ function buildRecDetailHTML(rec) {
       ${hf.audioDirection   ? `<div class="detail-row"><span class="detail-label">AUDIO</span><span class="detail-value">${escHtml(hf.audioDirection)}</span></div>` : ''}
     </div>` : ''}
 
+    ${rec.higgsfieldPrompt ? `
+    <div class="detail-section">
+      <div class="detail-section-label">HIGGSFIELD PROMPT — COPY &amp; PASTE</div>
+      <div class="detail-copybox" data-copy="${escAttr(rec.higgsfieldPrompt.copyablePrompt)}" onclick="copyBoxClick(this)">${escHtml(rec.higgsfieldPrompt.copyablePrompt || '')}<span class="detail-copy-hint">CLICK TO COPY</span></div>
+      <button class="copy-btn" data-copy="${escAttr(rec.higgsfieldPrompt.copyablePrompt)}" onclick="copyBtnClick(this, this.dataset.copy)">COPY PROMPT</button>
+    </div>` : ''}
+
     ${rec.whyItWillWork ? `
     <div class="detail-section">
       <div class="detail-section-label">WHY IT WILL WORK</div>
@@ -166,6 +172,16 @@ function buildRecDetailHTML(rec) {
 function copyBoxClick(el) {
   const text = el.getAttribute('data-copy') || '';
   navigator.clipboard.writeText(text).then(() => showToast('Copied to clipboard', 'ok')).catch(() => showToast('Copy failed', 'err'));
+}
+
+function copyBtnClick(btn, text) {
+  navigator.clipboard.writeText(text)
+    .then(() => {
+      btn.textContent = 'Copied!';
+      btn.classList.add('copied');
+      setTimeout(() => { btn.textContent = 'COPY PROMPT'; btn.classList.remove('copied'); }, 2000);
+    })
+    .catch(() => showToast('Copy failed', 'err'));
 }
 
 /* ─── Load state from API ───────────────────────────────────────────────────── */
@@ -206,9 +222,17 @@ async function loadDateDropdown() {
       const opt = document.createElement('option');
       opt.value = d;
       opt.textContent = d;
-      if (d === TODAY) opt.selected = true;
       select.appendChild(opt);
     });
+
+    // Snap TODAY to most recent date with data if current date has no data
+    if (!dates.includes(TODAY)) {
+      TODAY = dates[0]; // dates are sorted newest-first
+      document.getElementById('nav-date').textContent = TODAY;
+    }
+
+    // Set dropdown to match TODAY
+    select.value = TODAY;
 
     select.addEventListener('change', () => {
       TODAY = select.value;
@@ -226,7 +250,6 @@ async function loadDateDropdown() {
 
 function renderAll(s) {
   renderMetrics(s.metrics);
-  renderCharts(s.charts);
   renderKpiVideos(s.kpiVideos || []);
   renderRecs(s.recommendations || []);
   renderHighgsfield(s.higgsfieldJobs || []);
@@ -239,9 +262,6 @@ function renderMetrics(m) {
   set('m-scraped', fmt(m.totalScraped));
   set('m-scraped-sub', `TikTok ${fmt(m.tiktokCount)} · IG ${fmt(m.instagramCount)}`);
   set('m-passed', fmt(m.passedKpi));
-
-  const kw = m.topKeyword || '—';
-  set('m-keyword', '#' + kw);
 
   // Day over day
   const dod = m.dayOverDayPct;
@@ -256,86 +276,8 @@ function renderMetrics(m) {
   }
   set('m-dod-sub', 'vs yesterday avg KPI');
 
-  set('m-approvals', `${m.todayApprovals} / ${m.approvalCap}`);
-  set('m-approvals-sub', m.todayApprovals >= m.approvalCap ? '⚠ CAP REACHED' : `${m.approvalCap - m.todayApprovals} remaining`);
-}
-
-/* ─── Charts ────────────────────────────────────────────────────────────────── */
-const CHART_DEFAULTS = {
-  plugins: { legend: { labels: { color: '#888', font: { size: 11 } } } },
-  scales:  {},
-};
-
-function renderCharts(data) {
-  if (!data) return;
-  renderKpiChart(data.kpiDistribution);
-  renderTierChart(data.tierClusters);
-  render7DayChart(data.sevenDayPerf);
-}
-
-function renderKpiChart(dist) {
-  const ctx = document.getElementById('chart-kpi');
-  if (!ctx) return;
-  if (charts.kpi) charts.kpi.destroy();
-  charts.kpi = new Chart(ctx, {
-    type: 'bar',
-    data: {
-      labels: Object.keys(dist || {}),
-      datasets: [{ label: 'Videos', data: Object.values(dist || {}), backgroundColor: '#c8a96e44', borderColor: '#c8a96e', borderWidth: 1 }],
-    },
-    options: {
-      responsive: true, maintainAspectRatio: false, indexAxis: 'y',
-      plugins: { legend: { display: false } },
-      scales: {
-        x: { ticks: { color: '#666', font: { size: 10 } }, grid: { color: '#1e1e1e' } },
-        y: { ticks: { color: '#888', font: { size: 10 } }, grid: { color: '#1e1e1e' } },
-      },
-    },
-  });
-}
-
-function renderTierChart(tiers) {
-  const ctx = document.getElementById('chart-tiers');
-  if (!ctx) return;
-  if (charts.tier) charts.tier.destroy();
-  const t = tiers || { high: 0, medium: 0, low: 0 };
-  charts.tier = new Chart(ctx, {
-    type: 'doughnut',
-    data: {
-      labels: ['HIGH', 'MEDIUM', 'LOW'],
-      datasets: [{ data: [t.high, t.medium, t.low], backgroundColor: ['#c8a96e44', '#9999aa33', '#55556633'], borderColor: ['#c8a96e', '#9999aa', '#555566'], borderWidth: 1 }],
-    },
-    options: {
-      responsive: true, maintainAspectRatio: false,
-      plugins: { legend: { position: 'bottom', labels: { color: '#888', font: { size: 10 }, boxWidth: 10, padding: 10 } } },
-    },
-  });
-}
-
-function render7DayChart(days) {
-  const ctx = document.getElementById('chart-7day');
-  if (!ctx) return;
-  if (charts.sevenDay) charts.sevenDay.destroy();
-  const d = days || [];
-  charts.sevenDay = new Chart(ctx, {
-    type: 'line',
-    data: {
-      labels: d.map(x => x.date?.slice(5) || ''),
-      datasets: [
-        { label: 'Avg KPI', data: d.map(x => x.avgKpi ? +(x.avgKpi * 1000).toFixed(3) : null), borderColor: '#c8a96e', backgroundColor: '#c8a96e11', tension: 0.3, pointBackgroundColor: '#c8a96e', pointRadius: 4, spanGaps: true },
-        { label: 'Posts',   data: d.map(x => x.postCount), borderColor: '#444466', backgroundColor: '#44446611', tension: 0.3, pointBackgroundColor: '#444466', pointRadius: 3, yAxisID: 'y2', spanGaps: true },
-      ],
-    },
-    options: {
-      responsive: true, maintainAspectRatio: false,
-      plugins: { legend: { labels: { color: '#888', font: { size: 10 }, boxWidth: 10 } } },
-      scales: {
-        x:  { ticks: { color: '#666', font: { size: 10 } }, grid: { color: '#1a1a1a' } },
-        y:  { ticks: { color: '#888', font: { size: 10 } }, grid: { color: '#1a1a1a' }, title: { display: true, text: 'KPI ×1000', color: '#555', font: { size: 9 } } },
-        y2: { position: 'right', ticks: { color: '#555', font: { size: 10 } }, grid: { display: false }, title: { display: true, text: 'Posts', color: '#444', font: { size: 9 } } },
-      },
-    },
-  });
+  const kws = m.topKeywords3 || ['—'];
+  set('m-keywords', kws.join('  '));
 }
 
 /* ─── KPI Videos ────────────────────────────────────────────────────────────── */

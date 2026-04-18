@@ -10,8 +10,8 @@ const logger = require('./logger');
 // ─── Config ───────────────────────────────────────────────────────────────────
 const WHISPER_MODEL      = 'whisper-1';
 const MAX_FILE_BYTES     = 24 * 1024 * 1024;   // 24MB — Whisper hard limit is 25MB
-const DOWNLOAD_TIMEOUT   = 45_000;              // 45s to download a video
-const TRANSCRIBE_TIMEOUT = 90_000;              // 90s for Whisper to respond
+const DOWNLOAD_TIMEOUT   = 60_000;              // 60s to download a video
+const TRANSCRIBE_TIMEOUT = 120_000;             // 120s for Whisper to respond
 const DOWNLOAD_HEADERS   = {
   'User-Agent':
     'Mozilla/5.0 (Windows NT 10.0; Win64; x64) ' +
@@ -86,21 +86,37 @@ async function transcribeOne(video) {
 
     logger.info(`[Transcriber] Downloaded ${sizeMB}MB — sending to Whisper...`);
 
-    // ── 3. Send to Whisper ───────────────────────────────────────────────────
+    // ── 3. Send to Whisper (with retry on connection errors) ────────────────
     const fileBuffer = await fse.readFile(tmpPath);
     const audioFile  = await toFile(fileBuffer, 'audio.mp4', { type: 'video/mp4' });
 
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), TRANSCRIBE_TIMEOUT);
+    const RETRY_DELAYS    = [2000, 5000, 10000];
+    const RETRYABLE_CODES = ['ECONNRESET', 'ECONNREFUSED', 'ETIMEDOUT', 'ENOTFOUND'];
+
+    function isRetryable(err) {
+      if (RETRYABLE_CODES.includes(err.code)) return true;
+      if (err.message && err.message.includes('socket hang up')) return true;
+      return false;
+    }
 
     let result;
-    try {
-      result = await getOpenAI().audio.transcriptions.create(
-        { file: audioFile, model: WHISPER_MODEL, response_format: 'json' },
-        { signal: controller.signal }
-      );
-    } finally {
-      clearTimeout(timer);
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), TRANSCRIBE_TIMEOUT);
+      try {
+        result = await getOpenAI().audio.transcriptions.create(
+          { file: audioFile, model: WHISPER_MODEL, response_format: 'json' },
+          { signal: controller.signal }
+        );
+        clearTimeout(timer);
+        break;
+      } catch (err) {
+        clearTimeout(timer);
+        if (!isRetryable(err) || attempt === 3) throw err;
+        const delay = RETRY_DELAYS[attempt - 1];
+        logger.warn(`[Transcriber] Whisper connection error (attempt ${attempt}/3) — retrying in ${delay / 1000}s: ${err.message}`);
+        await new Promise((r) => setTimeout(r, delay));
+      }
     }
 
     const text = result?.text?.trim() || '';
@@ -151,7 +167,7 @@ async function run(scoredVideos) {
 
   const transcriptions = {};
   const stats = { success: 0, noSpeech: 0, tooLarge: 0, noUrl: 0, error: 0 };
-  const MAX_CONSECUTIVE_ERRORS = 3;
+  const MAX_CONSECUTIVE_ERRORS = 5;
   let consecutiveErrors = 0;
 
   // Sequential — avoids hammering Whisper API and keeps temp disk usage low

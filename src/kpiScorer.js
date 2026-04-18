@@ -3,8 +3,7 @@ require('dotenv').config();
 const logger = require('./logger');
 
 // ─────────────────────────────────────────────────────────────────────────────
-// BASE KPI WEIGHTS
-// These are hardcoded and permanent. Do not modify.
+// BASE KPI WEIGHTS — TikTok only
 // Spec: share rate 50%, save rate 30%, comment rate 20%
 // ─────────────────────────────────────────────────────────────────────────────
 const BASE_WEIGHTS = {
@@ -15,10 +14,11 @@ const BASE_WEIGHTS = {
 
 // Dynamic signal weights (combined into a 0-1 supplement score)
 const DYNAMIC_WEIGHTS = {
-  velocity:    0.50,
-  audioReuse:  0.20,
-  hashtag:     0.20,
+  velocity:    0.40,  // views per hour since posted — strongest real-time signal
+  audioReuse:  0.25,
+  hashtag:     0.15,
   postingTime: 0.10,
+  captionCTA:  0.10,  // caption contains engagement trigger language
 };
 
 // Base KPI carries 70% of composite; dynamic signals carry 30%
@@ -28,7 +28,7 @@ const COMPOSITE_WEIGHTS = {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// BASE KPI — hardcoded formula, never changes
+// BASE KPI — TikTok hardcoded formula, never changes
 // ─────────────────────────────────────────────────────────────────────────────
 function calcBaseKpi(video) {
   const views = video.viewCount || 0;
@@ -52,7 +52,6 @@ function calcBaseKpi(video) {
     saveRate    * BASE_WEIGHTS.saveRate    +
     commentRate * BASE_WEIGHTS.commentRate;
 
-  // Log which base signals contributed
   const kpiSignals = [];
   if (shareRate   > 0) kpiSignals.push('share-rate');
   if (saveRate    > 0) kpiSignals.push('save-rate');
@@ -64,9 +63,6 @@ function calcBaseKpi(video) {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // DYNAMIC KPI 1 — Engagement velocity
-// Total engagement divided by hours since posting.
-// A post that gained 50k engagements in 2 hours scores higher than one that
-// gained 50k over 20 hours — freshness amplifies signal strength.
 // ─────────────────────────────────────────────────────────────────────────────
 function calcVelocity(video) {
   if (!video.postedAt) {
@@ -80,7 +76,7 @@ function calcVelocity(video) {
     (video.saveCount    || 0);
 
   const ageMs    = Date.now() - new Date(video.postedAt).getTime();
-  const ageHours = Math.max(ageMs / (1000 * 60 * 60), 0.5); // floor at 30 min
+  const ageHours = Math.max(ageMs / (1000 * 60 * 60), 0.5);
 
   const engagementVelocity = totalEngagement / ageHours;
 
@@ -89,8 +85,6 @@ function calcVelocity(video) {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // DYNAMIC KPI 2 — Audio reuse map
-// Counts how many videos in today's dataset share the same audio.
-// When the same sound appears in 3+ videos, it's a confirmed trending audio.
 // ─────────────────────────────────────────────────────────────────────────────
 function buildAudioReuseMap(videos) {
   const map = {};
@@ -104,8 +98,6 @@ function buildAudioReuseMap(videos) {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // DYNAMIC KPI 3 — Hashtag frequency map
-// Counts how often each hashtag appears across all scraped videos.
-// A video whose hashtags are all trending scores higher.
 // ─────────────────────────────────────────────────────────────────────────────
 function buildHashtagFreqMap(videos) {
   const map = {};
@@ -120,11 +112,9 @@ function buildHashtagFreqMap(videos) {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // DYNAMIC KPI 4 — Posting time correlation
-// Groups videos by hour of day posted and calculates avg engagement per hour.
-// Videos posted during high-performing hours get a score boost.
 // ─────────────────────────────────────────────────────────────────────────────
 function buildPostingTimeMap(videos) {
-  const groups = {}; // hour -> { total, count }
+  const groups = {};
 
   for (const v of videos) {
     if (!v.postedAt) continue;
@@ -149,14 +139,21 @@ function buildPostingTimeMap(videos) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// HELPERS — normalization and statistics
+// DYNAMIC KPI 5 — Caption CTA signal
 // ─────────────────────────────────────────────────────────────────────────────
+function calcCaptionCTA(video) {
+  const triggers = ['?', 'comment', 'save', 'share', 'tag', 'drop', 'tell me', 'which', 'link in bio', 'follow'];
+  const caption = (video.caption || '').toLowerCase();
+  return triggers.some((t) => caption.includes(t)) ? 1 : 0;
+}
 
-// Normalize an array of numbers to [0, 1]
+// ─────────────────────────────────────────────────────────────────────────────
+// HELPERS
+// ─────────────────────────────────────────────────────────────────────────────
 function normalize(values) {
-  const nums = values.map((v) => (v === null || isNaN(v) ? 0 : v));
-  const min  = Math.min(...nums);
-  const max  = Math.max(...nums);
+  const nums  = values.map((v) => (v === null || isNaN(v) ? 0 : v));
+  const min   = Math.min(...nums);
+  const max   = Math.max(...nums);
   const range = max - min;
   return nums.map((v) => (range === 0 ? 0 : (v - min) / range));
 }
@@ -170,8 +167,6 @@ function median(arr) {
     : (sorted[mid - 1] + sorted[mid]) / 2;
 }
 
-// Returns the value at the given percentile (0–100) of a numeric array.
-// Top 60% pass = threshold is the 40th percentile.
 function percentile(arr, p) {
   if (!arr.length) return 0;
   const sorted = [...arr].sort((a, b) => a - b);
@@ -199,10 +194,14 @@ function score(videos) {
   const instagramCount = videos.filter((v) => v.platform === 'instagram').length;
   if (instagramCount > 0) {
     logger.info(
-      `[KPI] Note: ${instagramCount} Instagram videos have shareCount=0 and saveCount=0 ` +
-      `(platform does not expose these). Their base KPI scores reflect comment rate only.`
+      `[KPI] Note: ${instagramCount} Instagram videos scored with dedicated Instagram formula ` +
+      `(view score, comment rate, like rate, audio reuse, hashtag frequency, caption CTA).`
     );
   }
+
+  // Median views for Instagram view-score normalization
+  const igViewCounts  = videos.filter((v) => v.platform === 'instagram').map((v) => v.viewCount || 0);
+  const medianIgViews = median(igViewCounts);
 
   // ── Pre-compute lookup tables for dynamic signals ────────────────────────
   const audioReuseMap  = buildAudioReuseMap(videos);
@@ -236,10 +235,9 @@ function score(videos) {
     const base     = calcBaseKpi(v);
     const velocity = calcVelocity(v);
 
-    const audioKey       = (v.audioId || v.audioName || '').trim();
+    const audioKey        = (v.audioId || v.audioName || '').trim();
     const audioReuseCount = audioReuseMap[audioKey] || 0;
 
-    // Hashtag score = average frequency of a video's hashtags across dataset
     const tags = v.hashtags || [];
     const hashtagScore = tags.length > 0
       ? tags.reduce((sum, t) => sum + (hashtagFreqMap[t.toLowerCase()] || 0), 0) / tags.length
@@ -247,6 +245,15 @@ function score(videos) {
 
     const postHour       = v.postedAt ? new Date(v.postedAt).getHours() : null;
     const postingTimeAvg = postHour !== null ? (postingTimeMap[postHour] || 0) : 0;
+
+    // Instagram-specific base KPI components
+    const views    = v.viewCount || 0;
+    const viewScore = v.platform === 'instagram'
+      ? Math.min(views / Math.max(medianIgViews, 1), 1.0)
+      : 0;
+    const likeRate = views > 0 ? (v.likeCount || 0) / views : 0;
+
+    const captionCTA = calcCaptionCTA(v);
 
     return {
       ...base,
@@ -256,6 +263,9 @@ function score(videos) {
       audioReuseCount,
       hashtagScore,
       postingTimeAvg,
+      viewScore,
+      likeRate,
+      captionCTA,
     };
   });
 
@@ -264,48 +274,68 @@ function score(videos) {
   const normAudio      = normalize(rawScores.map((s) => s.audioReuseCount));
   const normHashtag    = normalize(rawScores.map((s) => s.hashtagScore));
   const normPostTime   = normalize(rawScores.map((s) => s.postingTimeAvg));
+  const normCaptionCTA = normalize(rawScores.map((s) => s.captionCTA));
 
   // ── Pass 3: compute composite score and attach full kpi block ────────────
   const scored = videos.map((v, i) => {
     const s = rawScores[i];
 
+    // Platform-aware base KPI
+    let baseKpiScore;
+    if (v.platform === 'instagram') {
+      baseKpiScore =
+        s.viewScore    * 0.25 +
+        s.commentRate  * 0.20 +
+        s.likeRate     * 0.15 +
+        normAudio[i]   * 0.10 +
+        normHashtag[i] * 0.10 +
+        s.captionCTA   * 0.05;
+    } else {
+      baseKpiScore = s.baseKpiScore;
+    }
+
     const dynamicScore =
-      normVelocity[i]  * DYNAMIC_WEIGHTS.velocity    +
-      normAudio[i]     * DYNAMIC_WEIGHTS.audioReuse  +
-      normHashtag[i]   * DYNAMIC_WEIGHTS.hashtag     +
-      normPostTime[i]  * DYNAMIC_WEIGHTS.postingTime;
+      normVelocity[i]   * DYNAMIC_WEIGHTS.velocity    +
+      normAudio[i]      * DYNAMIC_WEIGHTS.audioReuse  +
+      normHashtag[i]    * DYNAMIC_WEIGHTS.hashtag     +
+      normPostTime[i]   * DYNAMIC_WEIGHTS.postingTime +
+      normCaptionCTA[i] * DYNAMIC_WEIGHTS.captionCTA;
 
     const compositeScore =
-      s.baseKpiScore * COMPOSITE_WEIGHTS.base +
-      dynamicScore   * COMPOSITE_WEIGHTS.dynamic;
+      baseKpiScore * COMPOSITE_WEIGHTS.base +
+      dynamicScore * COMPOSITE_WEIGHTS.dynamic;
 
-    // Accumulate matched KPI signal labels
     const kpiSignalsMatched = [...s.kpiSignals];
-    if (s.audioReuseCount >= 3)  kpiSignalsMatched.push('trending-audio');
+    if (s.audioReuseCount >= 3)   kpiSignalsMatched.push('trending-audio');
     else if (s.audioReuseCount >= 2) kpiSignalsMatched.push('shared-audio');
-    if (normVelocity[i]  > 0.70) kpiSignalsMatched.push('high-velocity');
-    if (normHashtag[i]   > 0.70) kpiSignalsMatched.push('hashtag-frequency-spike');
-    if (normPostTime[i]  > 0.70) kpiSignalsMatched.push('peak-posting-time');
+    if (normVelocity[i]   > 0.70) kpiSignalsMatched.push('high-velocity');
+    if (normHashtag[i]    > 0.70) kpiSignalsMatched.push('hashtag-frequency-spike');
+    if (normPostTime[i]   > 0.70) kpiSignalsMatched.push('peak-posting-time');
+    if (normCaptionCTA[i] > 0.5)  kpiSignalsMatched.push('caption-cta');
 
     return {
       ...v,
       kpi: {
-        // ── Base KPI (hardcoded, permanent) ────────────────────────────────
+        // ── Base KPI ───────────────────────────────────────────────────────
         shareRate:             round6(s.shareRate),
         saveRate:              round6(s.saveRate),
         commentRate:           round6(s.commentRate),
-        baseKpiScore:          round6(s.baseKpiScore),
+        likeRate:              round6(s.likeRate),
+        viewScore:             round6(s.viewScore),
+        baseKpiScore:          round6(baseKpiScore),
 
         // ── Dynamic signals (normalized 0–1) ───────────────────────────────
-        engagementVelocity:        round6(s.engagementVelocity),
-        ageHours:                  s.ageHours !== null ? round6(s.ageHours) : null,
-        totalEngagement:           s.totalEngagement || 0,
-        velocityNormalized:        round6(normVelocity[i]),
-        audioReuseCount:           s.audioReuseCount,
-        audioReuseName:            v.audioName || '',
-        audioReuseNormalized:      round6(normAudio[i]),
-        hashtagFreqNormalized:     round6(normHashtag[i]),
-        postingTimeNormalized:     round6(normPostTime[i]),
+        engagementVelocity:    round6(s.engagementVelocity),
+        ageHours:              s.ageHours !== null ? round6(s.ageHours) : null,
+        totalEngagement:       s.totalEngagement || 0,
+        velocityNormalized:    round6(normVelocity[i]),
+        audioReuseCount:       s.audioReuseCount,
+        audioReuseName:        v.audioName || '',
+        audioReuseNormalized:  round6(normAudio[i]),
+        hashtagFreqNormalized: round6(normHashtag[i]),
+        postingTimeNormalized: round6(normPostTime[i]),
+        captionCTA:            s.captionCTA,
+        captionCTANormalized:  round6(normCaptionCTA[i]),
 
         // ── Composite ──────────────────────────────────────────────────────
         dynamicScore:          round6(dynamicScore),
@@ -321,14 +351,14 @@ function score(videos) {
   });
 
   // ── Pass 4: compute threshold (40th percentile = top 60% pass) ──────────
-  const baseScores       = scored.map((v) => v.kpi.baseKpiScore);
-  const medianScore      = round6(median(baseScores));           // kept for reference/logging
-  const thresholdScore   = round6(percentile(baseScores, 40));   // top 60% pass
+  const baseScores     = scored.map((v) => v.kpi.baseKpiScore);
+  const medianScore    = round6(median(baseScores));
+  const thresholdScore = round6(percentile(baseScores, 40));
 
   let passed = 0;
   for (const v of scored) {
-    v.kpi.medianBaseKpiScore  = medianScore;
-    v.kpi.passedKpiThreshold  = v.kpi.baseKpiScore > thresholdScore;
+    v.kpi.medianBaseKpiScore = medianScore;
+    v.kpi.passedKpiThreshold = v.kpi.baseKpiScore > thresholdScore;
     if (v.kpi.passedKpiThreshold) passed++;
   }
 
@@ -336,10 +366,11 @@ function score(videos) {
   scored.sort((a, b) => b.kpi.compositeScore - a.kpi.compositeScore);
 
   // ── Summary ───────────────────────────────────────────────────────────────
-  const tiktokPassed    = scored.filter((v) => v.platform === 'tiktok'    && v.kpi.passedKpiThreshold).length;
-  const instagramPassed = scored.filter((v) => v.platform === 'instagram' && v.kpi.passedKpiThreshold).length;
+  const tiktokPassed        = scored.filter((v) => v.platform === 'tiktok'    && v.kpi.passedKpiThreshold).length;
+  const instagramPassed     = scored.filter((v) => v.platform === 'instagram' && v.kpi.passedKpiThreshold).length;
   const trendingAudioVideos = scored.filter((v) => v.kpi.kpiSignalsMatched.includes('trending-audio')).length;
   const highVelocity        = scored.filter((v) => v.kpi.kpiSignalsMatched.includes('high-velocity')).length;
+  const captionCTAVideos    = scored.filter((v) => v.kpi.kpiSignalsMatched.includes('caption-cta')).length;
 
   logger.info(`[KPI] Median base KPI score:        ${medianScore}`);
   logger.info(`[KPI] Threshold (40th pctile):      ${thresholdScore}`);
@@ -348,6 +379,7 @@ function score(videos) {
   logger.info(`[KPI]   └─ Instagram passed:        ${instagramPassed}`);
   logger.info(`[KPI] Trending audio signal:        ${trendingAudioVideos} videos`);
   logger.info(`[KPI] High velocity signal:         ${highVelocity} videos`);
+  logger.info(`[KPI] Caption CTA signal:           ${captionCTAVideos} videos`);
   logger.info(`[KPI] Top composite score:          ${scored[0]?.kpi.compositeScore ?? 'n/a'}`);
   logger.info(`[KPI] Top video:                    @${scored[0]?.accountHandle ?? 'unknown'} — ${scored[0]?.url ?? ''}`);
   logger.info('[KPI] Scoring complete.');
