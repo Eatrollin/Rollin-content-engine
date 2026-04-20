@@ -355,6 +355,20 @@ async function run(trendAnalysis, scoredVideos, dateString, outputsBase) {
       footageMatch:    { type: 'pending', matchedFiles: [], seedancePrompt: '', shotList: [], shootDirections: '' },
     }));
 
+  // ── Series potential — formats that work as recurring series ─────────────
+  const SERIES_FORMATS = [
+    'chef', 'ivan', 'behind', 'process', 'how we', 'making', 'build',
+    'vs', 'challenge', 'reaction', 'taste', 'first time', 'blind',
+    'day in', 'weekly', 'episode', 'part', 'series', 'vol', 'recap',
+    'reveal', 'drop', 'launch', 'countdown',
+  ];
+  for (const rec of recs) {
+    const titleLower = (rec.title || '').toLowerCase();
+    const hookLower  = (rec.contentBrief?.hook || '').toLowerCase();
+    const combined   = titleLower + ' ' + hookLower;
+    rec.seriesPotential = SERIES_FORMATS.some(f => combined.includes(f));
+  }
+
   // ── Count by tier ─────────────────────────────────────────────────────────
   const highCount   = recs.filter((r) => r.tier === 'high').length;
   const mediumCount = recs.filter((r) => r.tier === 'medium').length;

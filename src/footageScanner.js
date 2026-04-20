@@ -29,10 +29,12 @@ async function listFolder(folderId, folderName, apiKey) {
 
   do {
     const params = {
-      q:         `'${folderId}' in parents and trashed = false`,
-      key:       apiKey,
-      fields:    'nextPageToken,files(id,name,mimeType,webViewLink,webContentLink)',
-      pageSize:  1000,
+      q:                         `'${folderId}' in parents and trashed = false`,
+      key:                       apiKey,
+      fields:                    'nextPageToken,files(id,name,mimeType,webViewLink,webContentLink)',
+      pageSize:                  1000,
+      supportsAllDrives:         true,
+      includeItemsFromAllDrives: true,
     };
     if (pageToken) params.pageToken = pageToken;
 
@@ -74,7 +76,7 @@ async function run() {
 
   try {
     const rootRes  = await axios.get(`${DRIVE_BASE}/files/${ROOT_FOLDER_ID}`, {
-      params: { key: apiKey, fields: 'id,name' },
+      params: { key: apiKey, fields: 'id,name', supportsAllDrives: true },
     });
     const rootName = rootRes.data.name || 'Rollin-raw-content';
 

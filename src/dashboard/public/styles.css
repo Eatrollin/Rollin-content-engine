@@ -252,3 +252,28 @@ body { background: var(--bg); color: var(--white); font-family: var(--font); fon
 .copy-btn { background: #c8a96e22; border: 1px solid #c8a96e44; color: #c8a96e; padding: 4px 12px; font-size: 10px; letter-spacing: .08em; cursor: pointer; margin-top: 6px; }
 .copy-btn:hover { background: #c8a96e44; }
 .copy-btn.copied { color: #4caf50; border-color: #4caf50; }
+
+/* ─── Tabs ─────────────────────────────────────────────────────────────────── */
+.tab-bar { display: flex; gap: 2px; margin-bottom: 24px; border-bottom: 1px solid #1e1e1e; padding-bottom: 0; }
+.tab-btn { background: none; border: none; border-bottom: 2px solid transparent; color: #555; font-size: 11px; letter-spacing: .12em; padding: 10px 20px; cursor: pointer; transition: color .2s; }
+.tab-btn:hover { color: #888; }
+.tab-btn.tab-active { color: #c8a96e; border-bottom-color: #c8a96e; }
+
+/* ─── Series badges & buttons ──────────────────────────────────────────────── */
+.badge-series { background: #2a1a4e; color: #9b7fd4; border: 1px solid #4a2a8e; font-size: 9px; padding: 2px 6px; letter-spacing: .08em; }
+.btn-series { background: #1a1a2e; border: 1px solid #4a2a8e; color: #9b7fd4; font-size: 9px; letter-spacing: .08em; padding: 4px 8px; cursor: pointer; }
+.btn-series:hover { background: #2a1a4e; }
+
+/* ─── Series cards ─────────────────────────────────────────────────────────── */
+.series-card { background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 20px; margin-bottom: 16px; }
+.series-card-header { margin-bottom: 14px; }
+.series-name { font-size: 14px; font-weight: 700; color: var(--gold); letter-spacing: .05em; margin-bottom: 4px; }
+.series-meta { font-size: 10px; color: var(--gray-3); letter-spacing: .08em; }
+.series-episodes { display: flex; flex-direction: column; gap: 10px; }
+.series-episode { background: var(--bg-card-2); border: 1px solid var(--border-2); border-radius: var(--radius); padding: 10px 14px; }
+.series-ep-title { font-size: 12px; color: var(--gray-1); font-weight: 600; margin-bottom: 4px; }
+.series-ep-meta { font-size: 10px; color: var(--gray-3); letter-spacing: .06em; }
+.series-ep-status { color: #9b7fd4; }
+.series-ep-score { font-size: 10px; color: var(--gold-dim); margin-top: 4px; }
+.series-ep-actions { margin-top: 8px; display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.series-no-ep { font-size: 11px; color: var(--gray-3); font-style: italic; padding: 8px 0; }

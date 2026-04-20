@@ -25,103 +25,125 @@
 
   <main class="main">
 
-    <!-- ── SECTION 1: METRICS OVERVIEW ───────────────────────────────────── -->
-    <section class="section">
-      <div class="section-header">
-        <h2 class="section-title">TODAY'S OVERVIEW</h2>
-        <button class="btn-refresh" onclick="loadState()">↻ REFRESH</button>
-      </div>
-      <div class="metrics-grid">
-        <div class="metric-card">
-          <div class="metric-value" id="m-scraped">—</div>
-          <div class="metric-label">VIDEOS SCRAPED</div>
-          <div class="metric-sub" id="m-scraped-sub">—</div>
+    <!-- ── TABS ──────────────────────────────────────────────────────────────── -->
+    <div class="tab-bar">
+      <button class="tab-btn tab-active" onclick="switchTab('main')">RECOMMENDATIONS</button>
+      <button class="tab-btn" onclick="switchTab('series')">SERIES</button>
+    </div>
+
+    <!-- ── TAB: MAIN ─────────────────────────────────────────────────────────── -->
+    <div id="tab-main">
+
+      <!-- ── SECTION 1: METRICS OVERVIEW ───────────────────────────────────── -->
+      <section class="section">
+        <div class="section-header">
+          <h2 class="section-title">TODAY'S OVERVIEW</h2>
+          <button class="btn-refresh" onclick="loadState()">↻ REFRESH</button>
         </div>
-        <div class="metric-card">
-          <div class="metric-value" id="m-passed">—</div>
-          <div class="metric-label">PASSED KPI</div>
-          <div class="metric-sub" id="m-passed-sub">above median</div>
+        <div class="metrics-grid">
+          <div class="metric-card">
+            <div class="metric-value" id="m-scraped">—</div>
+            <div class="metric-label">VIDEOS SCRAPED</div>
+            <div class="metric-sub" id="m-scraped-sub">—</div>
+          </div>
+          <div class="metric-card">
+            <div class="metric-value" id="m-passed">—</div>
+            <div class="metric-label">PASSED KPI</div>
+            <div class="metric-sub" id="m-passed-sub">above median</div>
+          </div>
+          <div class="metric-card">
+            <div class="metric-value" id="m-dod">—</div>
+            <div class="metric-label">@EATROLLIN TODAY</div>
+            <div class="metric-sub" id="m-dod-sub">vs yesterday</div>
+          </div>
+          <div class="metric-card">
+            <div class="metric-value metric-keywords" id="m-keywords">—</div>
+            <div class="metric-label">TOP KEYWORDS</div>
+            <div class="metric-sub">viral this cycle</div>
+          </div>
         </div>
-        <div class="metric-card">
-          <div class="metric-value metric-keyword" id="m-keyword">—</div>
-          <div class="metric-label">TOP KEYWORD</div>
-          <div class="metric-sub">today's leader</div>
+      </section>
+
+      <!-- ── SECTION 2: KPI VIDEOS ─────────────────────────────────────────── -->
+      <section class="section" id="kpi-videos-section">
+        <div class="section-header">
+          <h2 class="section-title">KPI VIDEOS — TODAY'S SOURCE DATA</h2>
+          <span id="kpi-videos-count" class="section-count">0 videos</span>
         </div>
-        <div class="metric-card">
-          <div class="metric-value" id="m-dod">—</div>
-          <div class="metric-label">@EATROLLIN TODAY</div>
-          <div class="metric-sub" id="m-dod-sub">vs yesterday</div>
+        <div id="kpi-videos-list"></div>
+        <div id="kpi-videos-empty" class="empty-state" style="display:none">
+          <div class="empty-icon">◻</div>
+          <div class="empty-title">No KPI videos yet</div>
+          <div class="empty-sub">Videos that pass the KPI threshold appear here after the pipeline runs</div>
         </div>
-        <div class="metric-card">
-          <div class="metric-value metric-keywords" id="m-keywords">—</div>
-          <div class="metric-label">TOP KEYWORDS</div>
-          <div class="metric-sub">viral this cycle</div>
+      </section>
+
+      <!-- ── SECTION 3: RECOMMENDATIONS ────────────────────────────────────── -->
+      <section class="section" id="recs-section">
+        <div class="section-header">
+          <h2 class="section-title">DAILY RECOMMENDATIONS</h2>
+          <span id="recs-count" class="section-count">0 / 12</span>
         </div>
-      </div>
-    </section>
 
-    <!-- ── SECTION 2: KPI VIDEOS ─────────────────────────────────────────── -->
-    <section class="section" id="kpi-videos-section">
-      <div class="section-header">
-        <h2 class="section-title">KPI VIDEOS — TODAY'S SOURCE DATA</h2>
-        <span id="kpi-videos-count" class="section-count">0 videos</span>
-      </div>
-      <div id="kpi-videos-list"></div>
-      <div id="kpi-videos-empty" class="empty-state" style="display:none">
-        <div class="empty-icon">◻</div>
-        <div class="empty-title">No KPI videos yet</div>
-        <div class="empty-sub">Videos that pass the KPI threshold appear here after the pipeline runs</div>
-      </div>
-    </section>
+        <div class="tier-block" id="tier-high">
+          <div class="tier-label tier-label-high">⬛ HIGH IMPACT</div>
+          <div class="recs-grid" id="recs-high"></div>
+        </div>
+        <div class="tier-block" id="tier-medium">
+          <div class="tier-label tier-label-medium">⬛ MEDIUM IMPACT</div>
+          <div class="recs-grid" id="recs-medium"></div>
+        </div>
+        <div class="tier-block" id="tier-low">
+          <div class="tier-label tier-label-low">⬛ LOW IMPACT</div>
+          <div class="recs-grid" id="recs-low"></div>
+        </div>
 
-    <!-- ── SECTION 4: RECOMMENDATIONS ────────────────────────────────────── -->
-    <section class="section" id="recs-section">
-      <div class="section-header">
-        <h2 class="section-title">DAILY RECOMMENDATIONS</h2>
-        <span id="recs-count" class="section-count">0 / 12</span>
-      </div>
+        <div id="recs-empty" class="empty-state" style="display:none">
+          <div class="empty-icon">◻</div>
+          <div class="empty-title">No recommendations yet</div>
+          <div class="empty-sub">The pipeline runs at 6am. Run manually with: <code>node src/pipeline.js</code></div>
+        </div>
+      </section>
 
-      <div class="tier-block" id="tier-high">
-        <div class="tier-label tier-label-high">⬛ HIGH IMPACT</div>
-        <div class="recs-grid" id="recs-high"></div>
-      </div>
-      <div class="tier-block" id="tier-medium">
-        <div class="tier-label tier-label-medium">⬛ MEDIUM IMPACT</div>
-        <div class="recs-grid" id="recs-medium"></div>
-      </div>
-      <div class="tier-block" id="tier-low">
-        <div class="tier-label tier-label-low">⬛ LOW IMPACT</div>
-        <div class="recs-grid" id="recs-low"></div>
-      </div>
+      <!-- ── SECTION 4: HIGGSFIELD ──────────────────────────────────────────── -->
+      <section class="section">
+        <h2 class="section-title">HIGGSFIELD VIDEO JOBS</h2>
+        <div id="higgsfield-jobs" class="hf-grid"></div>
+        <div id="higgsfield-empty" class="empty-state" style="display:none">
+          <div class="empty-icon">◻</div>
+          <div class="empty-title">No Higgsfield jobs today</div>
+          <div class="empty-sub">Top 2 High-tier recommendations auto-submit on pipeline run</div>
+        </div>
+      </section>
 
-      <div id="recs-empty" class="empty-state" style="display:none">
-        <div class="empty-icon">◻</div>
-        <div class="empty-title">No recommendations yet</div>
-        <div class="empty-sub">The pipeline runs at 6am. Run manually with: <code>node src/pipeline.js</code></div>
-      </div>
-    </section>
+      <!-- ── SECTION 5: HISTORY ─────────────────────────────────────────────── -->
+      <section class="section">
+        <h2 class="section-title">@EATROLLIN POST HISTORY</h2>
+        <div id="history-list"></div>
+        <div id="history-empty" class="empty-state" style="display:none">
+          <div class="empty-icon">◻</div>
+          <div class="empty-title">No evaluated posts yet</div>
+          <div class="empty-sub">Posts appear here after their 72-hour performance window closes</div>
+        </div>
+      </section>
 
-    <!-- ── SECTION 4: HIGGSFIELD ──────────────────────────────────────────── -->
-    <section class="section">
-      <h2 class="section-title">HIGGSFIELD VIDEO JOBS</h2>
-      <div id="higgsfield-jobs" class="hf-grid"></div>
-      <div id="higgsfield-empty" class="empty-state" style="display:none">
-        <div class="empty-icon">◻</div>
-        <div class="empty-title">No Higgsfield jobs today</div>
-        <div class="empty-sub">Top 2 High-tier recommendations auto-submit on pipeline run</div>
-      </div>
-    </section>
+    </div><!-- /#tab-main -->
 
-    <!-- ── SECTION 5: HISTORY ─────────────────────────────────────────────── -->
-    <section class="section">
-      <h2 class="section-title">@EATROLLIN POST HISTORY</h2>
-      <div id="history-list"></div>
-      <div id="history-empty" class="empty-state" style="display:none">
-        <div class="empty-icon">◻</div>
-        <div class="empty-title">No evaluated posts yet</div>
-        <div class="empty-sub">Posts appear here after their 72-hour performance window closes</div>
-      </div>
-    </section>
+    <!-- ── TAB: SERIES ────────────────────────────────────────────────────────── -->
+    <div id="tab-series" style="display:none">
+      <section class="section">
+        <div class="section-header">
+          <h2 class="section-title">ACTIVE SERIES</h2>
+          <span id="series-count" class="section-count">0 series</span>
+        </div>
+        <div id="series-list"></div>
+        <div id="series-empty" class="empty-state">
+          <div class="empty-icon">◻</div>
+          <div class="empty-title">No active series yet</div>
+          <div class="empty-sub">Click "SERIES +" on any recommendation to start a series</div>
+        </div>
+      </section>
+    </div><!-- /#tab-series -->
 
   </main>
 

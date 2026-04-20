@@ -276,6 +276,67 @@ app.get('/api/higgsfield/:jobId', async (req, res) => {
   }
 });
 
+// ─── API: series ─────────────────────────────────────────────────────────────
+const seriesManager = require('../seriesManager');
+
+app.get('/api/series', async (req, res) => {
+  try {
+    const data = await seriesManager.loadSeries();
+    res.json(data);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/series/create', async (req, res) => {
+  const { recId, date, tier } = req.body;
+  if (!recId || !date) return res.status(400).json({ error: 'recId and date required' });
+  try {
+    const dateDir = path.join(OUTPUTS_BASE, date);
+    let rec = null;
+    for (const t of [tier, 'high', 'medium', 'low'].filter(Boolean)) {
+      const tierDir = path.join(dateDir, t);
+      if (!(await fse.pathExists(tierDir))) continue;
+      const files = (await fse.readdir(tierDir)).filter(f => f.endsWith('.json'));
+      for (const f of files) {
+        try {
+          const data = await fse.readJson(path.join(tierDir, f));
+          if (data.id === recId) { rec = data; break; }
+        } catch { /* skip */ }
+      }
+      if (rec) break;
+    }
+    if (!rec) return res.status(404).json({ error: 'Recommendation not found' });
+    const series = await seriesManager.createSeries(rec, `New Series — ${(rec.title || '').slice(0, 30)}`);
+    res.json({ success: true, series });
+  } catch (err) {
+    logger.error(`[Dashboard] /api/series/create error: ${err.message}`);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/series/:seriesId/approve/:episodeId', async (req, res) => {
+  const { seriesId, episodeId } = req.params;
+  const { note } = req.body || {};
+  try {
+    const result = await seriesManager.approveEpisode(seriesId, episodeId, note || '');
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/series/:seriesId/reject/:episodeId', async (req, res) => {
+  const { seriesId, episodeId } = req.params;
+  const { note } = req.body || {};
+  try {
+    const result = await seriesManager.rejectEpisode(seriesId, episodeId, note || '');
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ─── Socket.io ────────────────────────────────────────────────────────────────
 io.on('connection', (socket) => {
   logger.info(`[Dashboard] Client connected: ${socket.id}`);

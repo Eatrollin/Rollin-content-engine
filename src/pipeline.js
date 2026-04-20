@@ -203,6 +203,13 @@ async function run({ testMode = false } = {}) {
     logger.info(`Email sent to chasezaidan@eatrollin.food`);
   });
 
+  // ── Step 13: Series Engine ────────────────────────────────────────────────
+  await runStep('Step 13 — Series Engine', async () => {
+    const seriesEngine   = require('./seriesEngine');
+    const seriesEpisodes = await seriesEngine.run(state.date);
+    logger.info(`Series engine generated ${seriesEpisodes.length} new episode(s).`);
+  });
+
   // ── Emit fresh data to the dashboard over Socket.io ───────────────────────
   try {
     const dashboardServer = require('./dashboard/server');

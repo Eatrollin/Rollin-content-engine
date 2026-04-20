@@ -371,6 +371,10 @@ function buildRecCard(rec) {
   const hook    = (brief.hook || '').slice(0, 120);
   const caption = (brief.sampleCaption || '').slice(0, 100);
 
+  const seriesBadge = rec.seriesPotential
+    ? `<span class="badge badge-series">SERIES POTENTIAL</span>`
+    : '';
+
   const approvalNote = rec.approvalNote ? ` — ${escHtml(rec.approvalNote.slice(0, 80))}` : '';
   const actionHtml = isApproved
     ? `<div class="decision-label decision-approved">✓ APPROVED${approvalNote}</div>`
@@ -381,6 +385,7 @@ function buildRecCard(rec) {
          <div class="rec-footer-actions">
            <button class="btn-approve" onclick="handleApprove('${rec.id}','${tier}')">APPROVE</button>
            <button class="btn-reject"  onclick="openRejectModal('${rec.id}','${tier}','${escAttr(rec.title)}')">REJECT</button>
+           <button class="btn-series"  onclick="startSeries('${rec.id}','${tier}',event)">SERIES +</button>
          </div>
        </div>`;
 
@@ -391,6 +396,7 @@ function buildRecCard(rec) {
     <span class="tier-badge tier-${tier}">${tier.toUpperCase()}</span>
     <span class="label-badge ${labelCls}">${label}</span>
     <span class="confidence">${conf}/10</span>
+    ${seriesBadge}
   </div>
   <div class="rec-title">${escHtml(rec.title || '')}</div>
   <div class="rec-trend">${escHtml((rec.trendSummary || '').slice(0, 200))}</div>
@@ -579,6 +585,125 @@ function renderHistory(posts) {
   <span class="hist-views">${p.views72h ? fmtK(p.views72h) : '—'}</span>
   <span class="hist-badge ${p.wasApproved ? 'hist-approved' : 'hist-organic'}">${p.wasApproved ? 'APPROVED' : 'ORGANIC'}</span>
 </div>`).join('');
+}
+
+/* ─── Tabs ──────────────────────────────────────────────────────────────────── */
+function switchTab(tab) {
+  document.getElementById('tab-main').style.display   = tab === 'main'   ? '' : 'none';
+  document.getElementById('tab-series').style.display = tab === 'series' ? '' : 'none';
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('tab-active'));
+  document.querySelector(`[onclick="switchTab('${tab}')"]`).classList.add('tab-active');
+  if (tab === 'series') loadSeries();
+}
+
+/* ─── Series ─────────────────────────────────────────────────────────────────── */
+async function startSeries(recId, tier, e) {
+  e.stopPropagation();
+  try {
+    const res  = await fetch('/api/series/create', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ recId, date: TODAY, tier }),
+    });
+    const data = await res.json();
+    if (data.success) showToast('Series started! Check the Series tab.', 'ok');
+    else showToast(data.error || 'Could not start series', 'err');
+  } catch (err) {
+    showToast('Network error: ' + err.message, 'err');
+  }
+}
+
+async function loadSeries() {
+  try {
+    const res  = await fetch('/api/series');
+    const data = await res.json();
+    renderSeries(data.series || []);
+  } catch (err) {
+    showToast('Failed to load series: ' + err.message, 'err');
+  }
+}
+
+function renderSeries(series) {
+  const el    = document.getElementById('series-list');
+  const empty = document.getElementById('series-empty');
+  const count = document.getElementById('series-count');
+  if (!el) return;
+
+  const active = series.filter(s => s.status === 'active');
+  if (count) count.textContent = `${active.length} series`;
+
+  if (!active.length) {
+    el.style.display = 'none';
+    if (empty) empty.style.display = '';
+    return;
+  }
+
+  el.style.display = '';
+  if (empty) empty.style.display = 'none';
+  el.innerHTML = active.map(s => buildSeriesCard(s)).join('');
+}
+
+function buildSeriesCard(s) {
+  const episodesHtml = (s.episodes || []).map(ep => {
+    const statusLabel = ep.approved ? '✓ APPROVED' : ep.rejected ? '✗ REJECTED' : 'PENDING';
+    const scoreHtml   = ep.performanceScore !== null && ep.performanceScore !== undefined
+      ? `<div class="series-ep-score">Score: ${(ep.performanceScore * 1000).toFixed(2)}k</div>`
+      : '';
+    const actionsHtml = !ep.approved && !ep.rejected ? `
+      <div class="series-ep-actions" onclick="event.stopPropagation()">
+        <input type="text" id="ep-note-${ep.id}" placeholder="Note (optional)" class="approve-note-input" />
+        <button class="btn-approve" onclick="approveSeriesEpisode('${s.id}','${ep.id}')">APPROVE</button>
+        <button class="btn-reject"  onclick="rejectSeriesEpisode('${s.id}','${ep.id}')">REJECT</button>
+      </div>` : '';
+    return `
+<div class="series-episode" id="ep-${ep.id}">
+  <div class="series-ep-title">${escHtml(ep.title || '')}</div>
+  <div class="series-ep-meta">${ep.date || ''}  <span class="series-ep-status">${statusLabel}</span>${ep.note ? ` — ${escHtml(ep.note)}` : ''}</div>
+  ${scoreHtml}
+  ${actionsHtml}
+</div>`;
+  }).join('');
+
+  return `
+<div class="series-card">
+  <div class="series-card-header">
+    <div class="series-name">${escHtml(s.name || '')}</div>
+    <div class="series-meta">Started: ${s.seedDate || '—'}  ·  ${(s.episodes || []).length} episode(s)</div>
+  </div>
+  <div class="series-episodes">${episodesHtml || '<div class="series-no-ep">No episodes yet — run the pipeline to generate</div>'}</div>
+</div>`;
+}
+
+async function approveSeriesEpisode(seriesId, episodeId) {
+  const note = document.getElementById(`ep-note-${episodeId}`)?.value || '';
+  try {
+    const res  = await fetch(`/api/series/${seriesId}/approve/${episodeId}`, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ note }),
+    });
+    const data = await res.json();
+    if (data.success) { showToast('Episode approved', 'ok'); loadSeries(); }
+    else showToast(data.error || 'Could not approve episode', 'err');
+  } catch (err) {
+    showToast('Network error: ' + err.message, 'err');
+  }
+}
+
+async function rejectSeriesEpisode(seriesId, episodeId) {
+  const note = document.getElementById(`ep-note-${episodeId}`)?.value || '';
+  try {
+    const res  = await fetch(`/api/series/${seriesId}/reject/${episodeId}`, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ note }),
+    });
+    const data = await res.json();
+    if (data.success) { showToast('Episode rejected', 'ok'); loadSeries(); }
+    else showToast(data.error || 'Could not reject episode', 'err');
+  } catch (err) {
+    showToast('Network error: ' + err.message, 'err');
+  }
 }
 
 /* ─── Status indicator ──────────────────────────────────────────────────────── */
