@@ -61,10 +61,32 @@ async function run({ testMode = false } = {}) {
   const pipelineStart = Date.now();
   const dateString = getDetroitDateString();
 
+  // Auto-increment run number if data already exists for today
+  const outputsParent = path.join(DATA_DIR, 'outputs');
+  await fse.ensureDir(outputsParent);
+  const existingDirs = await fse.readdir(outputsParent).catch(() => []);
+  const todayRuns = existingDirs.filter(d => d === dateString || d.startsWith(dateString + '-run'));
+  let runLabel;
+  if (todayRuns.length === 0) {
+    runLabel = dateString;
+  } else if (todayRuns.includes(dateString) && !todayRuns.some(d => d.includes('-run'))) {
+    await fse.move(
+      path.join(outputsParent, dateString),
+      path.join(outputsParent, `${dateString}-run1`)
+    ).catch(() => {});
+    runLabel = `${dateString}-run2`;
+  } else {
+    const runNumbers = todayRuns
+      .filter(d => d.includes('-run'))
+      .map(d => parseInt(d.split('-run')[1]) || 0);
+    const nextRun = Math.max(...runNumbers) + 1;
+    runLabel = `${dateString}-run${nextRun}`;
+  }
+
   state = {
-    date: dateString,
-    rawDataPath: path.join(DATA_DIR, 'raw-data', `${dateString}.json`),
-    outputsBase: path.join(DATA_DIR, 'outputs', dateString),
+    date: runLabel,
+    rawDataPath: path.join(DATA_DIR, 'raw-data', `${runLabel}.json`),
+    outputsBase: path.join(DATA_DIR, 'outputs', runLabel),
     scrapedVideos: [],
     scoredVideos: [],
     transcriptions: {},
@@ -87,7 +109,7 @@ async function run({ testMode = false } = {}) {
   logger.info('');
   logger.info('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
   logger.info(' ROLLIN CONTENT ENGINE — PIPELINE STARTING ');
-  logger.info(` Date: ${dateString}  (America/Detroit)     `);
+  logger.info(` Date: ${runLabel}  (America/Detroit)     `);
   if (testMode) logger.info(' ⚡ TEST MODE — skipping Apify scrape         ');
   logger.info('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
 

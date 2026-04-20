@@ -36,9 +36,51 @@ const TIKTOK_KEYWORD_SEARCHES = [
 // ─── Instagram sources ────────────────────────────────────────────────────────
 // Add handles here. INSTAGRAM_MAX controls results per account/hashtag source.
 const INSTAGRAM_ACCOUNTS = [
-  'blazincoop',
+  // Ghost kitchens and delivery-first brands
+  'eggtuck',
+  // High-performing restaurant brands on Instagram
+  'sweetgreen',
+  'shakeshack',
+  'chipotle',
+  'wmly.official',
+  'eggslut',
+  // Asian fusion restaurants
+  'junzi.kitchen',
+  'xianfoods',
+  'chowbus',
+  'tiger.sugar.official',
+  'baohaus',
+  // Detroit restaurant scene
+  'eatthisdetroit',
+  'thedetroitdiet',
+  'detroitfoodwatch',
+  'grey.ghost.detroit',
+  'supergreendetroit',
+  // Independent chef-driven restaurant brands
   'cousinvinnyssandwichco',
-  'gordonramsay',
+  'blazincoop',
+  'davidchang',
+  'momofuku',
+  'luckyleenyc',
+  'laylabagels',
+];
+
+const INSTAGRAM_HASHTAGS = [
+  'restaurantreels',
+  'ghostkitchen',
+  'asianfusion',
+  'detroitfood',
+  'cheflife',
+  'foodcinema',
+  'restaurantmarketing',
+  'foodreels',
+  'chefsofinstagram',
+  'restaurantlife',
+  'detroiteats',
+  'asianfood',
+  'foodvideo',
+  'restaurantbranding',
+  'cloudkitchen',
 ];
 
 // ─── Apify actor IDs ──────────────────────────────────────────────────────────
@@ -142,7 +184,7 @@ async function scrapeTikTokKeywords() {
 
 // ─── Instagram: accounts + hashtags ──────────────────────────────────────────
 async function scrapeInstagram() {
-  const hashtagUrls = TRACKED_HASHTAGS.map(
+  const hashtagUrls = INSTAGRAM_HASHTAGS.map(
     (tag) => `https://www.instagram.com/explore/tags/${tag}/`
   );
   const accountUrls = INSTAGRAM_ACCOUNTS.map(
@@ -158,7 +200,7 @@ async function scrapeInstagram() {
       addParentData: true,
       proxy:        { useApifyProxy: true },
     },
-    `Instagram (${TRACKED_HASHTAGS.length} hashtags + ${INSTAGRAM_ACCOUNTS.length} accounts × ${INSTAGRAM_MAX} max each)`
+    `Instagram (${INSTAGRAM_HASHTAGS.length} hashtags + ${INSTAGRAM_ACCOUNTS.length} accounts × ${INSTAGRAM_MAX} max each)`
   );
 }
 
@@ -316,7 +358,7 @@ async function run(dateString) {
   logger.info('[Scraper] Launching all scrapers in parallel');
   logger.info(`[Scraper] TikTok hashtags:  ${TRACKED_HASHTAGS.map((h) => '#' + h).join(', ')}`);
   logger.info(`[Scraper] TikTok keywords:  ${TIKTOK_KEYWORD_SEARCHES.map((t) => `"${t}"`).join(', ')}`);
-  logger.info(`[Scraper] Instagram:        hashtags above + accounts: ${INSTAGRAM_ACCOUNTS.join(', ')}`);
+  logger.info(`[Scraper] Instagram:        ${INSTAGRAM_HASHTAGS.length} hashtags + ${INSTAGRAM_ACCOUNTS.length} accounts × ${INSTAGRAM_MAX} max each`);
   logger.info(`[Scraper] Limits:           ${TIKTOK_HASHTAG_MAX}/hashtag  ${TIKTOK_KEYWORD_MAX}/keyword  ${INSTAGRAM_MAX}/IG source`);
   logger.info('[Scraper] ─────────────────────────────────────────────────');
 
@@ -386,4 +428,4 @@ async function run(dateString) {
   return { videos: recentVideos, trendingSounds };
 }
 
-module.exports = { run, TRACKED_HASHTAGS, INSTAGRAM_ACCOUNTS, TIKTOK_KEYWORD_SEARCHES };
+module.exports = { run, TRACKED_HASHTAGS, INSTAGRAM_ACCOUNTS, INSTAGRAM_HASHTAGS, TIKTOK_KEYWORD_SEARCHES };
