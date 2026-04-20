@@ -2,6 +2,7 @@ require('dotenv').config();
 
 const { OpenAI, toFile } = require('openai');
 const axios  = require('axios');
+const ffmpeg = require('fluent-ffmpeg');
 const path   = require('path');
 const fse    = require('fs-extra');
 const os     = require('os');
@@ -30,6 +31,19 @@ function getOpenAI() {
 // ─── Safe filename ────────────────────────────────────────────────────────────
 function safeName(id) {
   return String(id).replace(/[^a-z0-9_-]/gi, '_').slice(0, 60);
+}
+
+// ─── Extract audio from video to mp3 ─────────────────────────────────────────
+function extractAudio(videoPath, audioPath) {
+  return new Promise((resolve, reject) => {
+    ffmpeg(videoPath)
+      .noVideo()
+      .audioCodec('libmp3lame')
+      .audioBitrate('64k')
+      .on('end', resolve)
+      .on('error', reject)
+      .save(audioPath);
+  });
 }
 
 // ─── Download video to a temp file ───────────────────────────────────────────
@@ -66,7 +80,8 @@ async function transcribeOne(video) {
     return { text: null, reason: 'no-url' };
   }
 
-  let tmpPath = null;
+  let tmpPath   = null;
+  let audioPath = null;
 
   try {
     // ── 1. Download ──────────────────────────────────────────────────────────
@@ -84,11 +99,17 @@ async function transcribeOne(video) {
       return { text: null, reason: 'file-too-large', sizeMB };
     }
 
-    logger.info(`[Transcriber] Downloaded ${sizeMB}MB — sending to Whisper...`);
+    // ── 2.5. Extract audio to mp3 ────────────────────────────────────────────
+    audioPath = tmpPath.replace('.mp4', '.mp3');
+    logger.info(`[Transcriber] Extracting audio from ${sizeMB}MB video...`);
+    await extractAudio(tmpPath, audioPath);
+    const { size: audioSize } = await fse.stat(audioPath);
+    const audioMB = (audioSize / 1024 / 1024).toFixed(1);
+    logger.info(`[Transcriber] Audio extracted — ${audioMB}MB mp3 — sending to Whisper...`);
 
     // ── 3. Send to Whisper (with retry on connection errors) ────────────────
-    const fileBuffer = await fse.readFile(tmpPath);
-    const audioFile  = await toFile(fileBuffer, 'audio.mp4', { type: 'video/mp4' });
+    const fileBuffer = await fse.readFile(audioPath);
+    const audioFile  = await toFile(fileBuffer, 'audio.mp3', { type: 'audio/mpeg' });
 
     const RETRY_DELAYS    = [2000, 5000, 10000];
     const RETRYABLE_CODES = ['ECONNRESET', 'ECONNREFUSED', 'ETIMEDOUT', 'ENOTFOUND'];
@@ -134,18 +155,17 @@ async function transcribeOne(video) {
     return { text, wordCount, reason: 'success' };
 
   } catch (err) {
-    // Distinguish download vs transcription errors for better logging
-    const stage = tmpPath ? 'transcription' : 'download';
+    // Distinguish download vs extraction vs transcription errors for better logging
+    const stage = !tmpPath ? 'download' : !audioPath ? 'audio-extraction' : 'transcription';
     logger.error(
       `[Transcriber] ✗ @${video.accountHandle} — ${stage} failed: ${err.message}`
     );
     return { text: null, reason: `${stage}-error`, error: err.message };
 
   } finally {
-    // Always clean up the temp file regardless of outcome
-    if (tmpPath) {
-      await fse.remove(tmpPath).catch(() => {});
-    }
+    // Always clean up temp files regardless of outcome
+    if (tmpPath)   await fse.remove(tmpPath).catch(() => {});
+    if (audioPath) await fse.remove(audioPath).catch(() => {});
   }
 }
 

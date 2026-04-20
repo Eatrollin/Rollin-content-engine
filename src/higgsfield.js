@@ -20,19 +20,34 @@ const CONTENT_LIB = process.env.CONTENT_LIBRARY_PATH ||
                     path.join(os.homedir(), 'Desktop', 'rollin-content');
 
 // ─── Generate and save Higgsfield prompt object for one rec ──────────────────
+function sanitizeForHiggsfield(text) {
+  return (text || '')
+    .replace(/\bflame[s]?\b/gi, 'heat')
+    .replace(/\bcharcoal\b/gi, 'grill surface')
+    .replace(/\bfire\b/gi, 'cooking heat')
+    .replace(/\bburn(ing|ed|s)?\b/gi, 'sear')
+    .replace(/\bchar marks\b/gi, 'grill marks')
+    .replace(/\bburning\b/gi, 'cooking')
+    .replace(/\bblaze\b/gi, 'glow');
+}
+
 async function generatePrompt(rec) {
   const brief = rec.higgsfieldBrief || {};
+
+  const sceneDescription = sanitizeForHiggsfield(brief.sceneDescription);
+  const styleDirection   = sanitizeForHiggsfield(brief.styleDirection);
+  const audioDirection   = sanitizeForHiggsfield(brief.audioDirection);
 
   const higgsfieldPrompt = {
     mode: 'manual',
     generatedAt: new Date().toISOString(),
-    copyablePrompt: `${brief.sceneDescription}\n\nStyle: ${brief.styleDirection}\nMood: ${brief.mood}\nDuration: ${brief.durationSeconds}s\nAudio: ${brief.audioDirection}`,
+    copyablePrompt: `${sceneDescription}\n\nStyle: ${styleDirection}\nMood: ${brief.mood}\nDuration: ${brief.durationSeconds}s\nAudio: ${audioDirection}`,
     fields: {
-      prompt:         brief.sceneDescription || '',
-      style:          brief.styleDirection   || 'cinematic',
-      mood:           brief.mood             || 'dark',
-      duration:       brief.durationSeconds  || 15,
-      audioDirection: brief.audioDirection   || 'minimal ambient',
+      prompt:         sceneDescription        || '',
+      style:          styleDirection          || 'cinematic',
+      mood:           brief.mood              || 'dark',
+      duration:       brief.durationSeconds   || 15,
+      audioDirection: audioDirection          || 'minimal ambient',
     },
     context: {
       hook:          rec.contentBrief?.hook          || '',
