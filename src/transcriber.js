@@ -158,7 +158,7 @@ async function transcribeOne(video) {
     // Distinguish download vs extraction vs transcription errors for better logging
     const stage = !tmpPath ? 'download' : !audioPath ? 'audio-extraction' : 'transcription';
     logger.error(
-      `[Transcriber] ✗ @${video.accountHandle} — ${stage} failed: ${err.message}`
+      `[Transcriber] ✗ @${video.accountHandle} — ${stage} failed: ${err.message} | code: ${err.code || 'none'} | status: ${err.status || err.response?.status || 'none'}`
     );
     return { text: null, reason: `${stage}-error`, error: err.message };
 
@@ -173,6 +173,14 @@ async function transcribeOne(video) {
 // Processes all above-median videos sequentially (Whisper rate limits are tight).
 // Returns a map: { [videoId]: { text, wordCount, platform, accountHandle, ... } }
 async function run(scoredVideos) {
+  const { execSync } = require('child_process');
+  try {
+    execSync('ffmpeg -version', { stdio: 'ignore' });
+    logger.info('[Transcriber] ffmpeg available ✓');
+  } catch {
+    logger.warn('[Transcriber] ffmpeg NOT available — will send raw video to Whisper instead');
+  }
+
   const candidates = scoredVideos.filter((v) => v.kpi?.passedKpiThreshold);
 
   logger.info(`[Transcriber] ─────────────────────────────────────────────`);

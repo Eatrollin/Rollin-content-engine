@@ -214,7 +214,7 @@ app.get('/api/dates', async (req, res) => {
     if (!exists) return res.json({ dates: [] });
     const entries = await fse.readdir(OUTPUTS_BASE);
     const dates = entries
-      .filter(e => /^\d{4}-\d{2}-\d{2}$/.test(e))
+      .filter(e => /^\d{4}-\d{2}-\d{2}/.test(e))
       .sort()
       .reverse();
     res.json({ dates });
@@ -271,6 +271,20 @@ app.get('/api/higgsfield/:jobId', async (req, res) => {
   try {
     const status = await higgsfield.checkJobStatus(req.params.jobId);
     res.json(status);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── API: footage ────────────────────────────────────────────────────────────
+app.get('/api/footage', async (req, res) => {
+  try {
+    const { FOOTAGE_DIR } = require('../footageScanner');
+    const fse = require('fs-extra');
+    await fse.ensureDir(FOOTAGE_DIR);
+    const scanner = require('../footageScanner');
+    const library = await scanner.run();
+    res.json({ footage: library, footageDir: FOOTAGE_DIR });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
