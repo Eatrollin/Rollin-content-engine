@@ -26,9 +26,10 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 /* ─── Rec Detail Modal ──────────────────────────────────────────────────────── */
-async function openRecDetail(recId) {
+async function openRecDetail(recId, date) {
   try {
-    const res = await fetch(`/api/recommendation/${recId}?date=${TODAY}`);
+    const d   = date || TODAY;
+    const res = await fetch(`/api/recommendation/${recId}?date=${d}`);
     if (!res.ok) { showToast('Could not load recommendation details', 'err'); return; }
     const rec = await res.json();
     showRecDetailModal(rec);
@@ -655,12 +656,18 @@ function buildSeriesCard(s) {
         <button class="btn-approve" onclick="approveSeriesEpisode('${s.id}','${ep.id}')">APPROVE</button>
         <button class="btn-reject"  onclick="rejectSeriesEpisode('${s.id}','${ep.id}')">REJECT</button>
       </div>` : '';
+    const briefLink = ep.recId
+      ? `<div class="series-ep-brief-link" onclick="event.stopPropagation();openRecDetail('${ep.recId}','${ep.date || ''}')">VIEW FULL BRIEF →</div>`
+      : '';
+    const clickAttr = ep.recId
+      ? `style="cursor:pointer" onclick="openRecDetail('${ep.recId}','${ep.date || ''}')"` : '';
     return `
-<div class="series-episode" id="ep-${ep.id}">
+<div class="series-episode" id="ep-${ep.id}" ${clickAttr}>
   <div class="series-ep-title">${escHtml(ep.title || '')}</div>
   <div class="series-ep-meta">${ep.date || ''}  <span class="series-ep-status">${statusLabel}</span>${ep.note ? ` — ${escHtml(ep.note)}` : ''}</div>
   ${scoreHtml}
   ${actionsHtml}
+  ${briefLink}
 </div>`;
   }).join('');
 

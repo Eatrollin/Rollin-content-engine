@@ -276,4 +276,6 @@ body { background: var(--bg); color: var(--white); font-family: var(--font); fon
 .series-ep-status { color: #9b7fd4; }
 .series-ep-score { font-size: 10px; color: var(--gold-dim); margin-top: 4px; }
 .series-ep-actions { margin-top: 8px; display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.series-ep-brief-link { margin-top: 8px; font-size: 10px; color: var(--accent); letter-spacing: 0.05em; opacity: 0.75; cursor: pointer; }
+.series-ep-brief-link:hover { opacity: 1; }
 .series-no-ep { font-size: 11px; color: var(--gray-3); font-style: italic; padding: 8px 0; }

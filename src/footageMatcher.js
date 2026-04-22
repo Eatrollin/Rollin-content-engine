@@ -34,58 +34,80 @@ Respond ONLY with valid JSON matching this schema exactly:
   "shootDirections": ""
 }`;
 
-function extractJSON(text) {
-  const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/);
-  if (fenced) { try { return JSON.parse(fenced[1].trim()); } catch (_) {} }
-  try { return JSON.parse(text.trim()); } catch (_) {}
-  const start = text.indexOf('{');
-  const end   = text.lastIndexOf('}');
-  if (start !== -1 && end !== -1) { try { return JSON.parse(text.slice(start, end + 1)); } catch (_) {} }
-  return null;
+function fuzzyScore(filename, rec) {
+  const nameClean = filename
+    .toLowerCase()
+    .replace(/\.[^.]+$/, '')        // remove extension
+    .replace(/[-_]/g, ' ')          // dashes/underscores to spaces
+    .split(' ')
+    .filter(Boolean);
+
+  // Build keyword pool from recommendation
+  const keywords = [
+    ...(rec.title || '').toLowerCase().split(/\s+/),
+    ...(rec.contentBrief?.hook || '').toLowerCase().split(/\s+/),
+    ...(rec.contentBrief?.hashtagSet || []).map(h => h.toLowerCase().replace(/^#/, '')),
+    ...(rec.higgsfieldBrief?.sceneDescription || '').toLowerCase().split(/\s+/),
+    ...(rec.rawFootageNote || '').toLowerCase().split(/\s+/),
+  ].filter(w => w.length > 3); // ignore short words
+
+  // Score = number of filename words that appear in keyword pool
+  const matches = nameClean.filter(word =>
+    keywords.some(kw => kw.includes(word) || word.includes(kw))
+  );
+
+  return matches.length;
 }
 
-async function matchOne(rec, footageLibrary) {
-  const fileList = footageLibrary.length
-    ? footageLibrary.map(f => `${f.name} [${f.folderName}] (${f.isImage ? 'image' : 'video'})`).join('\n')
-    : '(no footage available in Drive)';
+function matchOne(rec, footageLibrary) {
+  if (!footageLibrary.length) {
+    return {
+      type:            'needs-shoot',
+      matchedFiles:    [],
+      seedancePrompt:  '',
+      shotList:        rec.contentBrief?.scriptOutline || [],
+      shootDirections: rec.higgsfieldBrief?.sceneDescription || '',
+    };
+  }
 
-  const userContent = JSON.stringify({
-    recommendation: {
-      title:           rec.title,
-      contentBrief:    rec.contentBrief,
-      higgsfieldBrief: rec.higgsfieldBrief,
-      rawFootageNote:  rec.rawFootageNote,
-    },
-    availableFootage: fileList,
-  }, null, 2);
+  // Score every file and pick the best matches
+  const scored = footageLibrary
+    .map(f => ({ file: f, score: fuzzyScore(f.name, rec) }))
+    .sort((a, b) => b.score - a.score);
 
-  const message = await getClient().messages.create({
-    model:      MODEL,
-    max_tokens: 1024,
-    system:     SYSTEM_PROMPT,
-    messages:   [{ role: 'user', content: userContent }],
-  });
+  const best = scored[0];
 
-  const parsed = extractJSON(message.content[0]?.text || '');
-  if (!parsed) {
-    return { type: 'needs-shoot', matchedFiles: [], seedancePrompt: '', shotList: [], shootDirections: 'Could not parse matching response.' };
+  if (best.score >= 1) {
+    // Collect all files with the top score
+    const topFiles = scored.filter(s => s.score === best.score).map(s => s.file.name);
+    const hf = rec.higgsfieldBrief || {};
+    const seedancePrompt = [
+      hf.sceneDescription,
+      hf.styleDirection ? `Style: ${hf.styleDirection}` : '',
+      hf.mood           ? `Mood: ${hf.mood}`             : '',
+      hf.audioDirection ? `Audio: ${hf.audioDirection}`  : '',
+    ].filter(Boolean).join(' ');
+
+    return {
+      type:            'seedance-ready',
+      matchedFiles:    topFiles,
+      seedancePrompt:  seedancePrompt || rec.trendSummary || '',
+      shotList:        [],
+      shootDirections: '',
+    };
   }
 
   return {
-    type:            parsed.type === 'seedance-ready' ? 'seedance-ready' : 'needs-shoot',
-    matchedFiles:    Array.isArray(parsed.matchedFiles)    ? parsed.matchedFiles    : [],
-    seedancePrompt:  parsed.seedancePrompt  || '',
-    shotList:        Array.isArray(parsed.shotList)        ? parsed.shotList        : [],
-    shootDirections: parsed.shootDirections || '',
+    type:            'needs-shoot',
+    matchedFiles:    [],
+    seedancePrompt:  '',
+    shotList:        rec.contentBrief?.scriptOutline || [],
+    shootDirections: rec.higgsfieldBrief?.sceneDescription || '',
   };
 }
 
 async function run(recommendations, footageLibrary) {
   if (!recommendations?.length) return [];
-  if (!process.env.ANTHROPIC_API_KEY) {
-    logger.warn('[FootageMatcher] ANTHROPIC_API_KEY not set — skipping matching.');
-    return recommendations;
-  }
 
   logger.info(`[FootageMatcher] Matching footage for ${recommendations.length} recommendation(s)...`);
   logger.info(`[FootageMatcher] Footage library: ${footageLibrary.length} file(s) available.`);
@@ -94,7 +116,7 @@ async function run(recommendations, footageLibrary) {
 
   for (const rec of recommendations) {
     try {
-      const match       = await matchOne(rec, footageLibrary);
+      const match       = matchOne(rec, footageLibrary);
       rec.footageMatch  = match;
 
       // Persist to JSON file on disk
