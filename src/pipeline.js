@@ -253,7 +253,7 @@ async function run({ testMode = false } = {}) {
   // ── Step 13: Series Engine ────────────────────────────────────────────────
   await runStep('Step 13 — Series Engine', async () => {
     const seriesEngine   = require('./seriesEngine');
-    const seriesEpisodes = await seriesEngine.run(state.date);
+    const seriesEpisodes = await seriesEngine.run(state.date, state.trendAnalysis);
     logger.info(`Series engine generated ${seriesEpisodes.length} new episode(s).`);
   });
 

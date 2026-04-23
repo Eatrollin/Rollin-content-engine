@@ -313,6 +313,18 @@ app.get('/api/series', async (req, res) => {
   }
 });
 
+app.post('/api/series/create-custom', async (req, res) => {
+  const { name, description } = req.body;
+  if (!name || !description) return res.status(400).json({ error: 'name and description are required' });
+  try {
+    const series = await seriesManager.createSeries(null, name, description);
+    res.json({ success: true, series });
+  } catch (err) {
+    logger.error(`[Dashboard] /api/series/create-custom error: ${err.message}`);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.post('/api/series/create', async (req, res) => {
   const { recId, date, tier } = req.body;
   if (!recId || !date) return res.status(400).json({ error: 'recId and date required' });

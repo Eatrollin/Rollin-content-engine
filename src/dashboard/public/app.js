@@ -588,6 +588,74 @@ function renderHistory(posts) {
 </div>`).join('');
 }
 
+/* ─── Custom Series Modal ───────────────────────────────────────────────────── */
+function openCreateSeriesModal() {
+  const existing = document.getElementById('create-series-modal');
+  if (existing) existing.remove();
+
+  const overlay = document.createElement('div');
+  overlay.id        = 'create-series-modal';
+  overlay.className = 'modal-overlay';
+  overlay.innerHTML = `
+<div class="rec-detail-panel" style="max-width:520px">
+  <div class="detail-header">
+    <div class="detail-header-meta"><span class="tier-badge tier-high">NEW SERIES</span></div>
+    <button class="detail-close" onclick="closeCreateSeriesModal()">✕</button>
+  </div>
+  <div class="detail-title">Create Custom Series</div>
+  <div class="detail-body">
+    <div class="detail-section">
+      <div class="detail-section-label">SERIES NAME</div>
+      <input id="new-series-name" type="text" placeholder="e.g. Chopping" class="approve-note-input" style="width:100%;font-size:14px;padding:10px;" />
+    </div>
+    <div class="detail-section">
+      <div class="detail-section-label">SERIES DESCRIPTION</div>
+      <textarea id="new-series-desc" placeholder="e.g. Chef Ivan showing off knife skills — julienne, brunoise, breaking down proteins, speed cuts. Dark cinematic style. Each episode isolates one technique." class="approve-note-input" style="width:100%;font-size:13px;padding:10px;min-height:120px;resize:vertical;"></textarea>
+    </div>
+    <div class="detail-section">
+      <div class="detail-body-text" style="color:#888;font-size:11px;">Each pipeline run will take what is trending on social media and apply it creatively to your series concept to generate the next episode.</div>
+    </div>
+    <div style="display:flex;gap:10px;margin-top:8px;">
+      <button class="btn-approve" style="flex:1;padding:12px;" onclick="submitCreateSeries()">CREATE SERIES</button>
+      <button class="btn-reject" style="flex:1;padding:12px;" onclick="closeCreateSeriesModal()">CANCEL</button>
+    </div>
+  </div>
+</div>`;
+
+  overlay.addEventListener('click', e => { if (e.target === overlay) closeCreateSeriesModal(); });
+  document.body.appendChild(overlay);
+  setTimeout(() => document.getElementById('new-series-name')?.focus(), 100);
+}
+
+function closeCreateSeriesModal() {
+  const el = document.getElementById('create-series-modal');
+  if (el) el.remove();
+}
+
+async function submitCreateSeries() {
+  const name = document.getElementById('new-series-name')?.value.trim();
+  const desc = document.getElementById('new-series-desc')?.value.trim();
+  if (!name) { showToast('Please enter a series name', 'err'); return; }
+  if (!desc) { showToast('Please enter a series description', 'err'); return; }
+  try {
+    const res  = await fetch('/api/series/create-custom', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ name, description: desc }),
+    });
+    const data = await res.json();
+    if (data.success) {
+      closeCreateSeriesModal();
+      showToast(`"${name}" series created — episodes generate on next pipeline run`, 'ok');
+      loadSeries();
+    } else {
+      showToast(data.error || 'Could not create series', 'err');
+    }
+  } catch (err) {
+    showToast('Network error: ' + err.message, 'err');
+  }
+}
+
 /* ─── Tabs ──────────────────────────────────────────────────────────────────── */
 function switchTab(tab) {
   document.getElementById('tab-main').style.display   = tab === 'main'   ? '' : 'none';
@@ -635,13 +703,16 @@ function renderSeries(series) {
 
   if (!active.length) {
     el.style.display = 'none';
-    if (empty) empty.style.display = '';
+    if (empty) {
+      empty.innerHTML = '<div style="margin-bottom:16px;"><button class="btn-approve" style="padding:10px 24px;letter-spacing:.1em;" onclick="openCreateSeriesModal()">+ CREATE SERIES</button></div><div style="color:#555;">No active series yet. Create one above or use SERIES + on any recommendation.</div>';
+      empty.style.display = '';
+    }
     return;
   }
 
   el.style.display = '';
   if (empty) empty.style.display = 'none';
-  el.innerHTML = active.map(s => buildSeriesCard(s)).join('');
+  el.innerHTML = `<div style="margin-bottom:16px;"><button class="btn-approve" style="padding:10px 24px;letter-spacing:.1em;" onclick="openCreateSeriesModal()">+ CREATE SERIES</button></div>` + active.map(s => buildSeriesCard(s)).join('');
 }
 
 function buildSeriesCard(s) {
@@ -674,7 +745,7 @@ function buildSeriesCard(s) {
   return `
 <div class="series-card">
   <div class="series-card-header">
-    <div class="series-name">${escHtml(s.name || '')}</div>
+    <div class="series-name">${escHtml(s.name || '')} ${s.type === 'custom' ? '<span class="badge badge-series" style="font-size:9px;margin-left:6px;">CUSTOM</span>' : '<span style="font-size:9px;color:#555;margin-left:6px;letter-spacing:.05em;">AUTO</span>'}</div>
     <div class="series-meta">Started: ${s.seedDate || '—'}  ·  ${(s.episodes || []).length} episode(s) &nbsp;<button class="btn-delete-series" onclick="event.stopPropagation();confirmDeleteSeries('${s.id}','${escAttr(s.name)}')">DELETE</button></div>
   </div>
   <div class="series-episodes">${episodesHtml || '<div class="series-no-ep">No episodes yet — run the pipeline to generate</div>'}</div>

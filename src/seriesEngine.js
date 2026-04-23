@@ -17,10 +17,7 @@ function getClient() {
 }
 
 // ─── Build prompt for next episode generation ─────────────────────────────────
-function buildPrompt(series) {
-  const approvedEps = series.episodes.filter(e => e.approved);
-  const rejectedEps = series.episodes.filter(e => e.rejected);
-  const pendingEps  = series.episodes.filter(e => !e.approved && !e.rejected);
+function buildPrompt(series, trendAnalysis) {
   const scoredEps   = series.episodes.filter(e => e.performanceScore !== null);
 
   const avgPerf = scoredEps.length
@@ -31,30 +28,51 @@ function buildPrompt(series) {
     `Episode ${i + 1}: "${e.title}" — ${e.approved ? `APPROVED (note: ${e.note || 'none'})` : e.rejected ? `REJECTED (note: ${e.note || 'none'})` : 'PENDING'}${e.performanceScore !== null ? ` — Performance score: ${e.performanceScore}` : ''}`
   ).join('\n');
 
+  const trendContext = trendAnalysis ? `
+WHAT IS TRENDING RIGHT NOW (apply these signals creatively to this series):
+- Top formats: ${(trendAnalysis.topFormats || []).slice(0, 3).join(', ') || 'none'}
+- Top keywords: ${(trendAnalysis.topKeywords || []).slice(0, 5).join(', ') || 'none'}
+- Top sounds: ${(trendAnalysis.topSounds || []).slice(0, 3).join(', ') || 'none'}
+- Performance summary: ${trendAnalysis.performanceSummary || 'none'}
+- Confirmed trends: ${(trendAnalysis.confirmedTrends || []).slice(0, 3).map(t => `"${t.title}" — ${t.summary}`).join(' | ') || 'none'}
+
+Your job is to take these trending signals and apply them creatively to the series concept above. If quick cuts and sharp editing are trending, the next episode should use quick cuts and sharp editing applied to this series' subject matter. If POV angles are trending, find a way to use POV within this series concept.` : '';
+
+  const seriesContext = series.type === 'custom'
+    ? `SERIES TYPE: Custom (created directly by Chase)
+SERIES NAME: "${series.name}"
+SERIES DESCRIPTION: ${series.customDescription}
+
+This series was personally designed by the owner. Your job is to generate the next episode by taking what is trending on social media RIGHT NOW and applying it creatively to this series concept. The episode must stay true to the series description while using the most effective current content formats and trends to make it perform.`
+    : `SERIES TYPE: Auto (seeded from a recommendation)
+SERIES NAME: "${series.name}"
+Seed concept: "${series.seedTitle}"
+Started: ${series.seedDate}`;
+
   return `You are generating the next episode recommendation for an ongoing content series for @eatrollin, a premium Asian fusion ghost kitchen in Detroit.
 
-SERIES: "${series.name}"
-Seed concept: "${series.seedTitle}"
-Started: ${series.seedDate}
+${seriesContext}
 
 EPISODE HISTORY:
-${episodeHistory || 'No episodes yet.'}
+${episodeHistory || 'No episodes yet — this is the first episode.'}
 
 ${avgPerf !== null ? `Average performance score: ${avgPerf.toFixed(4)}` : 'No performance data yet.'}
+${trendContext}
 
 Generate the next episode recommendation. It must:
-1. Continue and evolve the series concept — don't repeat previous episodes
-2. Learn from approvals (do more of what worked) and rejections (avoid what didn't)
-3. Be immediately production-ready for @eatrollin
-4. Follow the same brand voice: dark, clean, cinematic, bold, chef-driven
+1. Stay true to the series concept and description
+2. Apply current trending formats, editing styles, sounds, and behaviors to the series subject
+3. Learn from approvals (do more of what worked) and rejections (avoid what didn't)
+4. Be immediately production-ready for @eatrollin
+5. Follow Rollin's brand voice: dark, clean, cinematic, bold, chef-driven
 
 Return a single JSON object with this exact schema (no markdown, no wrapper):
 {
   "title": "episode title",
-  "trendSummary": "why this episode works for the series right now",
+  "trendSummary": "which specific trend is being applied and why it works for this series",
   "confidenceScore": 8,
   "label": "AI-FLAGGED",
-  "whyItWillWork": "specific reasoning tied to series momentum",
+  "whyItWillWork": "specific reasoning tying the trend signal to the series concept",
   "contentBrief": {
     "hook": "first 3 seconds of the video",
     "scriptOutline": ["beat 1", "beat 2", "beat 3"],
@@ -90,7 +108,7 @@ function episodeCount(series) {
 }
 
 // ─── Main ─────────────────────────────────────────────────────────────────────
-async function run(date) {
+async function run(date, trendAnalysis = null) {
   logger.info('[SeriesEngine] ─────────────────────────────────────────────');
   logger.info('[SeriesEngine] Generating next episodes for active series');
   logger.info('[SeriesEngine] ─────────────────────────────────────────────');
@@ -112,7 +130,7 @@ async function run(date) {
 
     for (let i = 0; i < count; i++) {
       try {
-        const prompt = buildPrompt(series);
+        const prompt = buildPrompt(series, trendAnalysis);
 
         const response = await getClient().messages.create({
           model:      MODEL,

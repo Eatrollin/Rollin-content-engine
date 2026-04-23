@@ -20,20 +20,22 @@ async function saveSeries(data) {
   await fse.writeJson(SERIES_FILE, data, { spaces: 2 });
 }
 
-async function createSeries(rec, seriesName) {
+async function createSeries(rec, seriesName, customDescription = null) {
   const data = await loadSeries();
   const id   = `series_${String(data.series.length + 1).padStart(3, '0')}`;
-  const name = seriesName || `New Series — ${(rec.title || '').slice(0, 30)}`;
+  const name = seriesName || `New Series — ${(rec?.title || '').slice(0, 30)}`;
 
   const series = {
     id,
     name,
-    createdAt:  new Date().toISOString(),
-    seedRecId:  rec.id    || null,
-    seedTitle:  rec.title || '',
-    seedDate:   rec.date  || new Date().toISOString().slice(0, 10),
-    status:     'active',
-    episodes:   [
+    createdAt:         new Date().toISOString(),
+    seedRecId:         rec?.id    || null,
+    seedTitle:         rec?.title || '',
+    seedDate:          rec?.date  || new Date().toISOString().slice(0, 10),
+    status:            'active',
+    type:              customDescription ? 'custom' : 'auto',
+    customDescription: customDescription || null,
+    episodes: rec ? [
       {
         id:               'ep_001',
         recId:            rec.id    || null,
@@ -45,12 +47,12 @@ async function createSeries(rec, seriesName) {
         postUrl:          null,
         performanceScore: null,
       },
-    ],
+    ] : [],
   };
 
   data.series.push(series);
   await saveSeries(data);
-  logger.info(`[SeriesManager] Created series "${name}" (${id}) from rec "${rec.title}"`);
+  logger.info(`[SeriesManager] Created ${series.type} series "${name}" (${id})`);
   return series;
 }
 

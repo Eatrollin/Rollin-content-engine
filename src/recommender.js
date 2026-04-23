@@ -128,8 +128,44 @@ async function scanFootageLibrary(keywords) {
   }
 }
 
+// ─── Load previously recommended titles to prevent duplicates ────────────────
+async function loadPreviousTitles(outputsBase) {
+  try {
+    const outputsDir    = path.dirname(outputsBase);
+    const currentFolder = path.basename(outputsBase);
+    const allFolders    = await fse.readdir(outputsDir).catch(() => []);
+
+    const pastFolders = allFolders
+      .filter(f => /^\d{4}-\d{2}-\d{2}/.test(f) && f !== currentFolder)
+      .sort()
+      .reverse()
+      .slice(0, 10); // look back across last 10 runs
+
+    const titles = [];
+    for (const folder of pastFolders) {
+      for (const tier of ['high', 'medium', 'low']) {
+        const tierDir = path.join(outputsDir, folder, tier);
+        if (!(await fse.pathExists(tierDir))) continue;
+        const files = (await fse.readdir(tierDir)).filter(f => f.endsWith('.json'));
+        for (const f of files) {
+          try {
+            const data = await fse.readJson(path.join(tierDir, f));
+            if (data.title) titles.push({ title: data.title, date: folder });
+          } catch { /* skip corrupt file */ }
+        }
+      }
+    }
+
+    logger.info(`[Recommender] Loaded ${titles.length} previously recommended titles from ${pastFolders.length} past runs`);
+    return titles;
+  } catch (err) {
+    logger.warn(`[Recommender] Could not load previous titles: ${err.message}`);
+    return [];
+  }
+}
+
 // ─── Build user prompt ────────────────────────────────────────────────────────
-function buildPrompt(trendAnalysis, scoredVideos) {
+function buildPrompt(trendAnalysis, scoredVideos, previousTitles = []) {
   const topVideos = (scoredVideos || [])
     .filter((v) => v.kpi?.passedKpiThreshold)
     .slice(0, 20)
@@ -146,6 +182,7 @@ function buildPrompt(trendAnalysis, scoredVideos) {
   const payload = {
     instructions: [
       `Generate exactly ${TOTAL_RECS} content recommendations for @eatrollin.`,
+      'CRITICAL: The previouslyRecommended field contains titles already recommended in past runs. You must NOT recommend anything with the same title or the same core concept as any entry in that list. Every recommendation this run must be genuinely new.',
       'Use the confirmed trends as the primary source — derive recommendations directly from what is KPI-proven.',
       'Fill remaining slots with AI-flagged observations if needed.',
       'Rank by confidence score descending (rank 1 = highest confidence).',
@@ -160,6 +197,7 @@ function buildPrompt(trendAnalysis, scoredVideos) {
     topFormats:            trendAnalysis.topFormats            || [],
     performanceSummary:    trendAnalysis.performanceSummary    || '',
     topPerformingVideosToday: topVideos,
+    previouslyRecommended: previousTitles.length > 0 ? previousTitles : 'No previous runs yet — this is the first run.',
   };
 
   return JSON.stringify(payload, null, 2);
@@ -297,7 +335,8 @@ async function run(trendAnalysis, scoredVideos, dateString, outputsBase) {
   }
 
   // ── Call Claude ───────────────────────────────────────────────────────────
-  const userPrompt = buildPrompt(trendAnalysis, scoredVideos);
+  const previousTitles = await loadPreviousTitles(outputsBase);
+  const userPrompt     = buildPrompt(trendAnalysis, scoredVideos, previousTitles);
   logger.info(`[Recommender] Prompt size: ~${Math.round(userPrompt.length / 4)} tokens`);
 
   let rawResponse;
