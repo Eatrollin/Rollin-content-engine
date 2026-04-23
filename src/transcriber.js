@@ -72,7 +72,7 @@ async function downloadToTemp(url, videoId) {
 
 // ─── Transcribe one video ─────────────────────────────────────────────────────
 // Returns transcription text string, or null if no speech / failure.
-async function transcribeOne(video) {
+async function transcribeOne(video, ffmpegAvailable) {
   const downloadUrl = video.videoDownloadUrl || video.url;
 
   if (!downloadUrl) {
@@ -99,17 +99,27 @@ async function transcribeOne(video) {
       return { text: null, reason: 'file-too-large', sizeMB };
     }
 
-    // ── 2.5. Extract audio to mp3 ────────────────────────────────────────────
-    audioPath = tmpPath.replace('.mp4', '.mp3');
-    logger.info(`[Transcriber] Extracting audio from ${sizeMB}MB video...`);
-    await extractAudio(tmpPath, audioPath);
-    const { size: audioSize } = await fse.stat(audioPath);
-    const audioMB = (audioSize / 1024 / 1024).toFixed(1);
-    logger.info(`[Transcriber] Audio extracted — ${audioMB}MB mp3 — sending to Whisper...`);
+    // ── 2.5. Prepare audio for Whisper ───────────────────────────────────────
+    // If ffmpeg available: extract to mp3 (smaller, faster). If not: send raw mp4 — Whisper supports it natively.
+    let fileBuffer;
+    let audioFile;
+
+    if (ffmpegAvailable) {
+      audioPath = tmpPath.replace('.mp4', '.mp3');
+      logger.info(`[Transcriber] Extracting audio from ${sizeMB}MB video...`);
+      await extractAudio(tmpPath, audioPath);
+      const { size: audioSize } = await fse.stat(audioPath);
+      const audioMB = (audioSize / 1024 / 1024).toFixed(1);
+      logger.info(`[Transcriber] Audio extracted — ${audioMB}MB mp3 — sending to Whisper...`);
+      fileBuffer = await fse.readFile(audioPath);
+      audioFile  = await toFile(fileBuffer, 'audio.mp3', { type: 'audio/mpeg' });
+    } else {
+      logger.info(`[Transcriber] No ffmpeg — sending raw ${sizeMB}MB mp4 directly to Whisper...`);
+      fileBuffer = await fse.readFile(tmpPath);
+      audioFile  = await toFile(fileBuffer, 'video.mp4', { type: 'video/mp4' });
+    }
 
     // ── 3. Send to Whisper (with retry on connection errors) ────────────────
-    const fileBuffer = await fse.readFile(audioPath);
-    const audioFile  = await toFile(fileBuffer, 'audio.mp3', { type: 'audio/mpeg' });
 
     const RETRY_DELAYS    = [2000, 5000, 10000];
     const RETRYABLE_CODES = ['ECONNRESET', 'ECONNREFUSED', 'ETIMEDOUT', 'ENOTFOUND'];
@@ -174,11 +184,13 @@ async function transcribeOne(video) {
 // Returns a map: { [videoId]: { text, wordCount, platform, accountHandle, ... } }
 async function run(scoredVideos) {
   const { execSync } = require('child_process');
+  let ffmpegAvailable = false;
   try {
     execSync('ffmpeg -version', { stdio: 'ignore' });
-    logger.info('[Transcriber] ffmpeg available ✓');
+    logger.info('[Transcriber] ffmpeg available ✓ — will extract audio before Whisper');
+    ffmpegAvailable = true;
   } catch {
-    logger.warn('[Transcriber] ffmpeg NOT available — will send raw video to Whisper instead');
+    logger.warn('[Transcriber] ffmpeg NOT available — sending raw mp4 directly to Whisper (supported natively)');
   }
 
   const candidates = scoredVideos.filter((v) => v.kpi?.passedKpiThreshold);
@@ -205,7 +217,7 @@ async function run(scoredVideos) {
       break;
     }
 
-    const result = await transcribeOne(video);
+    const result = await transcribeOne(video, ffmpegAvailable);
 
     if (result.text) {
       consecutiveErrors = 0;
