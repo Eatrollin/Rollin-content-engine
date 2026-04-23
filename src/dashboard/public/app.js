@@ -675,7 +675,7 @@ function buildSeriesCard(s) {
 <div class="series-card">
   <div class="series-card-header">
     <div class="series-name">${escHtml(s.name || '')}</div>
-    <div class="series-meta">Started: ${s.seedDate || '—'}  ·  ${(s.episodes || []).length} episode(s)</div>
+    <div class="series-meta">Started: ${s.seedDate || '—'}  ·  ${(s.episodes || []).length} episode(s) &nbsp;<button class="btn-delete-series" onclick="event.stopPropagation();confirmDeleteSeries('${s.id}','${escAttr(s.name)}')">DELETE</button></div>
   </div>
   <div class="series-episodes">${episodesHtml || '<div class="series-no-ep">No episodes yet — run the pipeline to generate</div>'}</div>
 </div>`;
@@ -708,6 +708,18 @@ async function rejectSeriesEpisode(seriesId, episodeId) {
     const data = await res.json();
     if (data.success) { showToast('Episode rejected', 'ok'); loadSeries(); }
     else showToast(data.error || 'Could not reject episode', 'err');
+  } catch (err) {
+    showToast('Network error: ' + err.message, 'err');
+  }
+}
+
+async function confirmDeleteSeries(seriesId, seriesName) {
+  if (!confirm(`Delete "${seriesName}"? This cannot be undone.`)) return;
+  try {
+    const res  = await fetch(`/api/series/${seriesId}`, { method: 'DELETE' });
+    const data = await res.json();
+    if (data.success) { showToast('Series deleted', 'ok'); loadSeries(); }
+    else showToast(data.error || 'Could not delete series', 'err');
   } catch (err) {
     showToast('Network error: ' + err.message, 'err');
   }

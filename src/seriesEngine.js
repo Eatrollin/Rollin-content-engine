@@ -1,8 +1,11 @@
 require('dotenv').config();
 
 const Anthropic      = require('@anthropic-ai/sdk');
+const path           = require('path');
+const fse            = require('fs-extra');
 const logger         = require('./logger');
 const seriesManager  = require('./seriesManager');
+const { DATA_DIR }   = require('./config');
 
 const MODEL      = 'claude-sonnet-4-6';
 const MAX_TOKENS = 4096;
@@ -138,6 +141,12 @@ async function run(date) {
           approved:    false,
           rejected:    false,
         };
+
+        // Save full episode rec to disk so the dashboard can look it up by recId
+        const recDir = path.join(DATA_DIR, 'outputs', epRec.date, epRec.tier);
+        await fse.ensureDir(recDir);
+        await fse.writeJson(path.join(recDir, `${epRec.id}.json`), epRec, { spaces: 2 });
+        logger.info(`[SeriesEngine]   ✓ Saved episode rec to outputs/${epRec.date}/${epRec.tier}/${epRec.id}.json`);
 
         const saved = await seriesManager.addEpisode(series.id, epRec);
         if (saved) {

@@ -129,6 +129,17 @@ async function updateEpisodePerformance(seriesId, episodeId, score) {
   return { success: true };
 }
 
+async function deleteSeries(seriesId) {
+  const data  = await loadSeries();
+  const index = data.series.findIndex(s => s.id === seriesId);
+  if (index === -1) return { success: false, error: 'Series not found' };
+  const name = data.series[index].name;
+  data.series.splice(index, 1);
+  await saveSeries(data);
+  logger.info(`[SeriesManager] Deleted series ${seriesId}: "${name}"`);
+  return { success: true };
+}
+
 module.exports = {
   loadSeries,
   saveSeries,
@@ -138,4 +149,5 @@ module.exports = {
   rejectEpisode,
   getActiveSeries,
   updateEpisodePerformance,
+  deleteSeries,
 };

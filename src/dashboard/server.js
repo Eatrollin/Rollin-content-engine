@@ -188,17 +188,28 @@ app.get('/api/state', async (req, res) => {
 app.get('/api/recommendation/:recId', async (req, res) => {
   const { recId } = req.params;
   const date      = req.query.date || todayString();
-  const dateDir   = path.join(OUTPUTS_BASE, date);
+
   try {
-    for (const tier of ['high', 'medium', 'low']) {
-      const tierDir = path.join(dateDir, tier);
-      if (!(await fse.pathExists(tierDir))) continue;
-      const files = (await fse.readdir(tierDir)).filter(f => f.endsWith('.json'));
-      for (const f of files) {
-        try {
-          const data = await fse.readJson(path.join(tierDir, f));
-          if (data.id === recId) return res.json(data);
-        } catch { /* skip corrupt file */ }
+    // Build list of folders to search — exact date first, then any run-labeled variants
+    const allFolders = await fse.readdir(OUTPUTS_BASE).catch(() => []);
+    const foldersToSearch = [
+      date,
+      ...allFolders.filter(f => f.startsWith(date + '-') || f === date),
+    ].filter((v, i, a) => a.indexOf(v) === i); // dedupe
+
+    for (const folder of foldersToSearch) {
+      const dateDir = path.join(OUTPUTS_BASE, folder);
+      if (!(await fse.pathExists(dateDir))) continue;
+      for (const tier of ['high', 'medium', 'low']) {
+        const tierDir = path.join(dateDir, tier);
+        if (!(await fse.pathExists(tierDir))) continue;
+        const files = (await fse.readdir(tierDir)).filter(f => f.endsWith('.json'));
+        for (const f of files) {
+          try {
+            const data = await fse.readJson(path.join(tierDir, f));
+            if (data.id === recId) return res.json(data);
+          } catch { /* skip corrupt file */ }
+        }
       }
     }
     res.status(404).json({ error: 'Recommendation not found' });
@@ -334,6 +345,16 @@ app.post('/api/series/:seriesId/approve/:episodeId', async (req, res) => {
   const { note } = req.body || {};
   try {
     const result = await seriesManager.approveEpisode(seriesId, episodeId, note || '');
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete('/api/series/:seriesId', async (req, res) => {
+  const { seriesId } = req.params;
+  try {
+    const result = await seriesManager.deleteSeries(seriesId);
     res.json(result);
   } catch (err) {
     res.status(500).json({ error: err.message });
