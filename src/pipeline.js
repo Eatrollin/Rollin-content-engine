@@ -16,6 +16,33 @@ function getDetroitDateString() {
   return `${yyyy}-${mm}-${dd}`;
 }
 
+// Replaces Whisper — extracts caption text from already-scraped Apify data.
+// Same shape as Whisper output so the rest of the pipeline is unchanged.
+function buildCaptionTranscriptions(scoredVideos) {
+  const transcriptions = {};
+  const candidates = scoredVideos.filter(v => v.kpi?.passedKpiThreshold);
+  for (const video of candidates) {
+    const text = (video.caption || video.text || video.description || '').trim();
+    if (!text) continue;
+    const wordCount = text.split(/\s+/).filter(Boolean).length;
+    transcriptions[video.id] = {
+      videoId:       video.id,
+      platform:      video.platform,
+      accountHandle: video.accountHandle,
+      url:           video.url,
+      text,
+      wordCount,
+      transcribedAt: new Date().toISOString(),
+      kpiScore:      video.kpi.compositeScore,
+      kpiSignals:    video.kpi.kpiSignalsMatched,
+      source:        'caption',
+    };
+  }
+  const count = Object.keys(transcriptions).length;
+  logger.info(`[CaptionExtractor] ${count} captions extracted from ${candidates.length} KPI-passing videos`);
+  return transcriptions;
+}
+
 // ─── Pipeline state shared between steps ─────────────────────────────────────
 // Each step reads from and writes to this object so modules stay decoupled.
 // As steps are built they will populate and consume these fields.
@@ -154,12 +181,10 @@ async function run({ testMode = false } = {}) {
     logger.info(`Learning loop evaluated ${state.ownPostPerformance.length} @eatrollin posts.`);
   });
 
-  // ── Step 5: Transcription ──────────────────────────────────────────────────
-  await runStep('Step 5 — Transcription (Whisper)', async () => {
-    const transcriber = require('./transcriber');
-    state.transcriptions = await transcriber.run(state.scoredVideos);
-    const count = Object.keys(state.transcriptions).length;
-    logger.info(`Transcribed ${count} videos.`);
+  // ── Step 5: Caption Extraction ────────────────────────────────────────────
+  await runStep('Step 5 — Caption Extraction (replacing Whisper)', async () => {
+    state.transcriptions = buildCaptionTranscriptions(state.scoredVideos);
+    logger.info(`Captions extracted: ${Object.keys(state.transcriptions).length}`);
   });
 
   // ── Step 6: AI Trend Analysis ──────────────────────────────────────────────
