@@ -8,7 +8,7 @@ const logger    = require('./logger');
 
 // ─── Config ───────────────────────────────────────────────────────────────────
 const MODEL              = 'claude-sonnet-4-6';
-const MAX_TOKENS         = 16000;
+const MAX_TOKENS         = 32000;
 const TOTAL_RECS         = 12;
 const CONTENT_LIB_PATH   = process.env.CONTENT_LIBRARY_PATH ||
                             path.join(os.homedir(), 'Desktop', 'rollin-content');
