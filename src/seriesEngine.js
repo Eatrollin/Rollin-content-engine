@@ -132,13 +132,18 @@ async function run(date, trendAnalysis = null) {
       try {
         const prompt = buildPrompt(series, trendAnalysis);
 
-        const response = await getClient().messages.create({
+        const stream = await getClient().messages.stream({
           model:      MODEL,
           max_tokens: MAX_TOKENS,
           messages:   [{ role: 'user', content: prompt }],
         });
 
-        const rawText = response.content?.[0]?.text || '';
+        let rawText = '';
+        for await (const event of stream) {
+          if (event.type === 'content_block_delta' && event.delta?.type === 'text_delta') {
+            rawText += event.delta.text;
+          }
+        }
         let parsed;
         try {
           parsed = extractJSON(rawText);

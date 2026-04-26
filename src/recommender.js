@@ -437,16 +437,23 @@ async function run(trendAnalysis, scoredVideos, dateString, outputsBase) {
   const userPrompt     = buildPrompt(trendAnalysis, scoredVideos, previousTitles, styleLearning);
   logger.info(`[Recommender] Prompt size: ~${Math.round(userPrompt.length / 4)} tokens`);
 
-  let rawResponse;
+  let rawResponse = '';
   try {
-    const message = await getClient().messages.create({
+    logger.info('[Recommender] Streaming response from Claude...');
+    const stream = await getClient().messages.stream({
       model:      MODEL,
       max_tokens: MAX_TOKENS,
       system:     SYSTEM_PROMPT,
       messages:   [{ role: 'user', content: userPrompt }],
     });
-    rawResponse = message.content[0]?.text || '';
-    logger.info(`[Recommender] Claude response: ${rawResponse.length} chars`);
+
+    for await (const event of stream) {
+      if (event.type === 'content_block_delta' && event.delta?.type === 'text_delta') {
+        rawResponse += event.delta.text;
+      }
+    }
+
+    logger.info(`[Recommender] Stream complete — Claude response: ${rawResponse.length} chars`);
     logger.info('[Recommender] ── RAW CLAUDE RESPONSE ─────────────────────');
     logger.info(rawResponse);
     logger.info('[Recommender] ── END RAW RESPONSE ──────────────────────────');
