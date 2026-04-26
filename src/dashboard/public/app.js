@@ -161,6 +161,61 @@ function buildRecDetailHTML(rec) {
       <div class="detail-body-text">${escHtml(rec.whyItWillWork)}</div>
     </div>` : ''}
 
+    ${rec.productionPackage ? `
+    <div class="detail-section">
+      <div class="detail-section-label">PRODUCTION PACKAGE</div>
+      <div class="detail-row"><span class="detail-label">CLIPS</span><span class="detail-value">${rec.productionPackage.totalClipsToShoot || '—'} clips</span></div>
+      <div class="detail-row"><span class="detail-label">SHOOT TIME</span><span class="detail-value">${escHtml(rec.productionPackage.estimatedShootTime || '—')}</span></div>
+      <div class="detail-row"><span class="detail-label">FINAL LENGTH</span><span class="detail-value">${escHtml(rec.productionPackage.finalVideoDuration || '—')}</span></div>
+      ${rec.productionPackage.musicAndAudioPlan ? `<div class="detail-row"><span class="detail-label">AUDIO PLAN</span><span class="detail-value">${escHtml(rec.productionPackage.musicAndAudioPlan)}</span></div>` : ''}
+    </div>` : ''}
+
+    ${(rec.productionPackage && rec.productionPackage.shootList) ? `
+    <div class="detail-section">
+      <div class="detail-section-label">SHOOT LIST — FILM IN THIS ORDER</div>
+      <div class="detail-body-text" style="color:#888;font-size:11px;margin-bottom:10px;">This is the order to physically film clips. The edit order below is different.</div>
+      ${rec.productionPackage.shootList.map(c => `
+        <div class="shoot-clip" style="border:1px solid #2a2a2a;padding:10px;margin-bottom:8px;border-radius:4px;">
+          <div style="font-weight:600;color:#d4a55a;margin-bottom:6px;">CLIP ${c.clipNumber} — ${escHtml(c.subject || '')}</div>
+          <div style="font-size:12px;color:#aaa;line-height:1.6;">
+            <div><span style="color:#666;">Angle:</span> ${escHtml(c.cameraAngle || '—')}</div>
+            <div><span style="color:#666;">Distance:</span> ${escHtml(c.shotDistance || '—')}</div>
+            <div><span style="color:#666;">Movement:</span> ${escHtml(c.cameraMovement || '—')}</div>
+            <div><span style="color:#666;">Record:</span> ${escHtml(c.recordDuration || '—')}</div>
+            <div><span style="color:#666;">Lighting:</span> ${escHtml(c.lighting || '—')}</div>
+            <div><span style="color:#666;">Critical:</span> <span style="color:#e8c98a;">${escHtml(c.criticalDetail || '—')}</span></div>
+          </div>
+        </div>
+      `).join('')}
+    </div>` : ''}
+
+    ${(rec.productionPackage && rec.productionPackage.editOrder) ? `
+    <div class="detail-section">
+      <div class="detail-section-label">EDIT ORDER — CAPCUT TIMELINE</div>
+      <div class="detail-body-text" style="color:#888;font-size:11px;margin-bottom:10px;">Build the CapCut timeline in this order. Each slot tells you which Shoot Clip to drop in.</div>
+      ${rec.productionPackage.editOrder.map(s => `
+        <div class="edit-slot" style="border-left:3px solid #d4a55a;padding:8px 12px;margin-bottom:8px;background:#1a1a1a;">
+          <div style="font-weight:600;color:#fff;margin-bottom:4px;">${escHtml(s.timestamp || '')} — Use ${escHtml(s.shootClipRef || '')}</div>
+          <div style="font-size:12px;color:#aaa;line-height:1.6;">
+            <div><span style="color:#666;">Final length:</span> ${escHtml(s.finalDuration || '—')}</div>
+            <div><span style="color:#666;">Transition:</span> ${escHtml(s.transitionIn || '—')}</div>
+            ${s.onScreenText ? `<div><span style="color:#666;">Text overlay:</span> <span style="color:#e8c98a;">"${escHtml(s.onScreenText)}"</span></div>` : ''}
+            ${s.audioCue ? `<div><span style="color:#666;">Audio cue:</span> ${escHtml(s.audioCue)}</div>` : ''}
+          </div>
+        </div>
+      `).join('')}
+    </div>` : ''}
+
+    <div class="detail-section">
+      <div class="detail-section-label">STYLE FEEDBACK — TEACH THE PIPELINE</div>
+      <div class="detail-body-text" style="color:#888;font-size:11px;margin-bottom:10px;">After you build this in CapCut, tell the pipeline what worked or didn't work about the production package style.</div>
+      <textarea id="style-reason-${rec.id}" placeholder="Reason (e.g. 'Loved the shoot order — made plating logical' or 'Edit order had too many quick cuts')" class="approve-note-input" style="width:100%;font-size:13px;padding:10px;min-height:60px;resize:vertical;margin-bottom:8px;"></textarea>
+      <div style="display:flex;gap:8px;">
+        <button class="btn-approve" style="flex:1;padding:10px;" onclick="submitStyleFeedback('${rec.id}','${escAttr(rec.title || '')}','positive')">+ STYLE</button>
+        <button class="btn-reject" style="flex:1;padding:10px;" onclick="submitStyleFeedback('${rec.id}','${escAttr(rec.title || '')}','negative')">− STYLE</button>
+      </div>
+    </div>
+
     <div class="detail-section">
       <div class="detail-section-label">FOOTAGE MATCH</div>
       ${footageHtml}
@@ -823,6 +878,28 @@ function fmt(n) { return n != null ? Number(n).toLocaleString() : '—'; }
 function fmtK(n) { return n >= 1000 ? (n/1000).toFixed(1) + 'k' : String(n); }
 function escHtml(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 function escAttr(s) { return String(s).replace(/'/g,"\\'").replace(/"/g,'&quot;'); }
+
+async function submitStyleFeedback(recId, recTitle, type) {
+  const reason = document.getElementById(`style-reason-${recId}`)?.value.trim() || '';
+  if (!reason) { showToast('Please add a reason so the pipeline can learn', 'err'); return; }
+  try {
+    const res  = await fetch('/api/style-feedback', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ recId, recTitle, type, reason }),
+    });
+    const data = await res.json();
+    if (data.success) {
+      showToast(`Style feedback recorded — pipeline will learn`, 'ok');
+      const el = document.getElementById(`style-reason-${recId}`);
+      if (el) el.value = '';
+    } else {
+      showToast(data.error || 'Could not record feedback', 'err');
+    }
+  } catch (err) {
+    showToast('Network error: ' + err.message, 'err');
+  }
+}
 
 // Close modal on overlay click
 document.addEventListener('click', (e) => {

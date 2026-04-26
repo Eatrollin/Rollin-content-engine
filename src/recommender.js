@@ -29,7 +29,7 @@ function getClient() {
 }
 
 // ─── SYSTEM PROMPT ────────────────────────────────────────────────────────────
-const SYSTEM_PROMPT = `You are the creative content strategist for Rollin, a premium Asian fusion ghost kitchen in Detroit, Michigan.
+const SYSTEM_PROMPT = `You are the creative content strategist AND production planner for Rollin, a premium Asian fusion ghost kitchen in Detroit, Michigan.
 
 BRAND CONTEXT:
 - Restaurant: Rollin
@@ -41,9 +41,17 @@ BRAND CONTEXT:
 - Aesthetic: Cinematic food photography, dramatic lighting, raw kitchen energy, precise plating
 - Audience: Detroit food culture, Asian food enthusiasts, ghost kitchen early adopters
 
+PRODUCTION CONTEXT — CRITICAL:
+- All filming is done on iPhone 17 with external microphones
+- All editing happens in CapCut (mobile and desktop)
+- The team is Chase (creative direction, editor) and Chef Ivan (on-camera talent, kitchen)
+- Final video format: 15-45 second vertical reels for Instagram and TikTok
+- Average target: 15 clips per finished video
+- Every recommendation must be 100% executable using only iPhone 17 + CapCut. Do not suggest gear-dependent techniques like aperture control, prime lenses, or complex DSLR-only setups.
+
 YOUR ROLE:
 Turn trend intelligence into 12 specific, production-ready content recommendations for @eatrollin.
-Each recommendation must be immediately actionable — the team should be able to pick it up and shoot it today.
+Each recommendation must include a complete production package — shoot list, edit timeline, and execution chain — that lets Chase pick up his iPhone, film, and edit in CapCut without any creative decisions left to make.
 
 RECOMMENDATION STANDARDS:
 1. Every hook must be written for the first 3 seconds on TikTok/Reels — fast, visual, no wasted frames
@@ -51,6 +59,33 @@ RECOMMENDATION STANDARDS:
 3. Captions match Rollin's voice: dark, confident, minimal. No exclamation points. No cringe.
 4. Higgsfield briefs must be specific enough to generate a real video — describe lighting, movement, mood, subject
 5. Confidence scores reflect realistic potential for @eatrollin specifically — not generic virality
+
+PRODUCTION PACKAGE STANDARDS — CRITICAL:
+You must generate two separate ordered lists for every recommendation:
+
+1. SHOOT LIST — the order to physically film clips on shoot day, optimized for kitchen logic and food state.
+   Example: A "How we make our pork belly bao" video shows the finished bao first in the edit, but the bao must be FILMED LAST because it has to be hot, fresh, and visually perfect at the moment of capture. Pork belly cooking, bao steaming, and assembly must be filmed in that natural order. Plate the finished bao at the very end of the shoot day so it's at peak visual quality.
+
+2. EDIT ORDER — the order clips appear in the final video, which is almost always different from the shoot order. This is what Chase paste-references while building the CapCut timeline.
+
+Both lists must explicitly reference each other. Every shoot list clip has a number (Clip 1, Clip 2…). Every edit order slot references which Shoot Clip number to use.
+
+Each Shoot Clip must include:
+- subject (what is being filmed)
+- cameraAngle (overhead, eye-level, low angle, POV, side profile, etc.)
+- shotDistance (extreme close-up, close-up, medium, wide)
+- cameraMovement (static, slow push-in, slow pan, handheld follow, etc.)
+- recordDuration (how long to record — always longer than the final cut)
+- lighting (key light direction, ambient, window light, dark backdrop, etc.)
+- criticalDetail (the one thing that MUST be visible — steam, sauce drip, char, knife angle)
+
+Each Edit Order slot must include:
+- timestamp (e.g. "0:00-0:03")
+- shootClipRef (which Shoot Clip number)
+- finalDuration (how long this clip is in the final video)
+- onScreenText (any burned-in text, or null)
+- audioCue (when audio drops, beats, transitions occur, or null)
+- transitionIn (cut, fade, whip pan, match cut, etc.)
 
 OUTPUT FORMAT:
 Respond ONLY with a valid JSON object. No markdown. No prose. Exactly this schema:
@@ -61,7 +96,7 @@ Respond ONLY with a valid JSON object. No markdown. No prose. Exactly this schem
       "id": "rec_001",
       "rank": 1,
       "title": "Short memorable recommendation title",
-      "sourceTrendId": "trend_001 or ai_001 — which trend this comes from",
+      "sourceTrendId": "trend_001 or ai_001",
       "label": "KPI-CONFIRMED or AI-FLAGGED",
       "confidenceScore": 9,
       "trendSummary": "2 sentences: what is performing in the market right now and why",
@@ -78,9 +113,38 @@ Respond ONLY with a valid JSON object. No markdown. No prose. Exactly this schem
         "hashtagSet": ["hashtag1", "hashtag2"],
         "callToAction": "What should viewers do or feel after watching"
       },
+      "productionPackage": {
+        "totalClipsToShoot": 15,
+        "estimatedShootTime": "45 minutes",
+        "finalVideoDuration": "22 seconds",
+        "musicAndAudioPlan": "Specific guidance — what audio to use, where it drops, where it cuts. Match the audio direction from trends.",
+        "shootList": [
+          {
+            "clipNumber": 1,
+            "subject": "Pork belly searing in cast iron, fat rendering",
+            "cameraAngle": "low angle, side profile",
+            "shotDistance": "extreme close-up",
+            "cameraMovement": "slow push-in",
+            "recordDuration": "10 seconds",
+            "lighting": "single warm key light from left, dark backdrop",
+            "criticalDetail": "Visible bubbling fat and steam"
+          }
+        ],
+        "editOrder": [
+          {
+            "slotNumber": 1,
+            "timestamp": "0:00-0:02",
+            "shootClipRef": "Clip 14",
+            "finalDuration": "2 seconds",
+            "onScreenText": "Pork belly bao",
+            "audioCue": "Audio starts — sub-bass drop on cut",
+            "transitionIn": "Hard cut from black"
+          }
+        ]
+      },
       "rawFootageNote": "Specific guidance on what to film or what raw footage to use",
       "higgsfieldBrief": {
-        "sceneDescription": "Detailed visual description of the scene — subject, action, environment",
+        "sceneDescription": "Detailed visual description of the scene",
         "styleDirection": "Lighting style, color grade, camera movement, lens feel",
         "mood": "One word mood descriptor",
         "durationSeconds": 15,
@@ -128,6 +192,35 @@ async function scanFootageLibrary(keywords) {
   }
 }
 
+// ─── Load style learning history (Chase's +style / -style feedback) ──────────
+async function loadStyleLearning() {
+  try {
+    const { DATA_DIR } = require('./config');
+    const stylePath    = path.join(DATA_DIR, 'style-learning.json');
+    if (!(await fse.pathExists(stylePath))) return null;
+    const data = await fse.readJson(stylePath);
+    const entries = (data.entries || []).slice(-30);
+    if (entries.length === 0) return null;
+
+    const liked = entries.filter(e => e.type === 'positive').map(e => ({
+      title:  e.recTitle,
+      reason: e.reason,
+      date:   e.recordedAt,
+    }));
+    const disliked = entries.filter(e => e.type === 'negative').map(e => ({
+      title:  e.recTitle,
+      reason: e.reason,
+      date:   e.recordedAt,
+    }));
+
+    logger.info(`[Recommender] Loaded style learning: ${liked.length} liked, ${disliked.length} disliked`);
+    return { liked, disliked };
+  } catch (err) {
+    logger.warn(`[Recommender] Could not load style learning: ${err.message}`);
+    return null;
+  }
+}
+
 // ─── Load previously recommended titles to prevent duplicates ────────────────
 async function loadPreviousTitles(outputsBase) {
   try {
@@ -165,7 +258,7 @@ async function loadPreviousTitles(outputsBase) {
 }
 
 // ─── Build user prompt ────────────────────────────────────────────────────────
-function buildPrompt(trendAnalysis, scoredVideos, previousTitles = []) {
+function buildPrompt(trendAnalysis, scoredVideos, previousTitles = [], styleLearning = null) {
   const topVideos = (scoredVideos || [])
     .filter((v) => v.kpi?.passedKpiThreshold)
     .slice(0, 20)
@@ -189,6 +282,9 @@ function buildPrompt(trendAnalysis, scoredVideos, previousTitles = []) {
       'Confidence scores must reflect realistic potential for @eatrollin — a ghost kitchen with no existing audience launching June 1st in Detroit.',
       'Every recommendation must be specific to Rollin\'s dark, premium, chef-driven brand voice.',
       'Do not recommend anything that requires a dining room, table service, or front-of-house interaction.',
+      'Every recommendation MUST include a complete productionPackage with shootList and editOrder arrays. The shootList is the physical filming order; the editOrder is the final video sequence. They are usually different. Each editOrder slot must reference a shootList clipNumber.',
+      'When determining shoot order, think like a chef and a director simultaneously: what state must the food be in, what cooks first, what plates last, what steam needs to be visible at the moment of capture. The finished dish is almost always the LAST thing filmed even if it appears first in the edit.',
+      'If a styleLearning field is present in the payload, treat it as the highest-priority signal for production package style. Apply the patterns Chase has marked +style and avoid patterns he has marked -style.',
     ],
     confirmedTrends:       trendAnalysis.confirmedTrends       || [],
     aiFlaggedObservations: trendAnalysis.aiFlaggedObservations || [],
@@ -198,6 +294,7 @@ function buildPrompt(trendAnalysis, scoredVideos, previousTitles = []) {
     performanceSummary:    trendAnalysis.performanceSummary    || '',
     topPerformingVideosToday: topVideos,
     previouslyRecommended: previousTitles.length > 0 ? previousTitles : 'No previous runs yet — this is the first run.',
+    styleLearning: styleLearning || 'No style feedback yet — establish a strong default style.',
   };
 
   return JSON.stringify(payload, null, 2);
@@ -336,7 +433,8 @@ async function run(trendAnalysis, scoredVideos, dateString, outputsBase) {
 
   // ── Call Claude ───────────────────────────────────────────────────────────
   const previousTitles = await loadPreviousTitles(outputsBase);
-  const userPrompt     = buildPrompt(trendAnalysis, scoredVideos, previousTitles);
+  const styleLearning  = await loadStyleLearning();
+  const userPrompt     = buildPrompt(trendAnalysis, scoredVideos, previousTitles, styleLearning);
   logger.info(`[Recommender] Prompt size: ~${Math.round(userPrompt.length / 4)} tokens`);
 
   let rawResponse;

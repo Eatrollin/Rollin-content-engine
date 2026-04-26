@@ -303,12 +303,25 @@ app.get('/api/footage', async (req, res) => {
 
 // ─── API: series ─────────────────────────────────────────────────────────────
 const seriesManager = require('../seriesManager');
+const styleManager  = require('../styleManager');
 
 app.get('/api/series', async (req, res) => {
   try {
     const data = await seriesManager.loadSeries();
     res.json(data);
   } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/style-feedback', async (req, res) => {
+  const { recId, recTitle, type, reason } = req.body;
+  if (!recId || !type) return res.status(400).json({ error: 'recId and type required' });
+  try {
+    const result = await styleManager.recordStyleFeedback(recId, recTitle || '', type, reason || '');
+    res.json(result);
+  } catch (err) {
+    logger.error(`[Dashboard] /api/style-feedback error: ${err.message}`);
     res.status(500).json({ error: err.message });
   }
 });
