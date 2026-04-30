@@ -10,6 +10,7 @@ const logger    = require('./logger');
 const MODEL              = 'claude-sonnet-4-6';
 const MAX_TOKENS         = 32000;
 const TOTAL_RECS         = 12;
+const BATCH_SIZE         = 6;  // recommendations per Claude call — keeps responses under token cap
 const CONTENT_LIB_PATH   = process.env.CONTENT_LIBRARY_PATH ||
                             path.join(os.homedir(), 'Desktop', 'rollin-content');
 
@@ -258,7 +259,7 @@ async function loadPreviousTitles(outputsBase) {
 }
 
 // ─── Build user prompt ────────────────────────────────────────────────────────
-function buildPrompt(trendAnalysis, scoredVideos, previousTitles = [], styleLearning = null) {
+function buildPrompt(trendAnalysis, scoredVideos, previousTitles = [], styleLearning = null, batchInfo = null) {
   const topVideos = (scoredVideos || [])
     .filter((v) => v.kpi?.passedKpiThreshold)
     .slice(0, 20)
@@ -274,7 +275,9 @@ function buildPrompt(trendAnalysis, scoredVideos, previousTitles = [], styleLear
 
   const payload = {
     instructions: [
-      `Generate exactly ${TOTAL_RECS} content recommendations for @eatrollin.`,
+      batchInfo
+        ? `Generate exactly ${batchInfo.batchSize} content recommendations (batch ${batchInfo.batchNumber} of ${batchInfo.totalBatches} — ranks ${batchInfo.startRank} through ${batchInfo.endRank} of ${TOTAL_RECS} total).`
+        : `Generate exactly ${TOTAL_RECS} content recommendations for @eatrollin.`,
       'CRITICAL: The previouslyRecommended field contains titles already recommended in past runs. You must NOT recommend anything with the same title or the same core concept as any entry in that list. Every recommendation this run must be genuinely new.',
       'Use the confirmed trends as the primary source — derive recommendations directly from what is KPI-proven.',
       'Fill remaining slots with AI-flagged observations if needed.',
@@ -294,6 +297,15 @@ function buildPrompt(trendAnalysis, scoredVideos, previousTitles = [], styleLear
     performanceSummary:    trendAnalysis.performanceSummary    || '',
     topPerformingVideosToday: topVideos,
     previouslyRecommended: previousTitles.length > 0 ? previousTitles : 'No previous runs yet — this is the first run.',
+    batchContext: batchInfo
+      ? {
+          note:                  `This is batch ${batchInfo.batchNumber} of ${batchInfo.totalBatches} for this run. Generate exactly ${batchInfo.batchSize} recommendations.`,
+          recommendationsAlreadyGeneratedThisRun: batchInfo.alreadyGenerated || [],
+          instruction:           batchInfo.alreadyGenerated && batchInfo.alreadyGenerated.length > 0
+            ? `Do NOT repeat any titles or core concepts from recommendationsAlreadyGeneratedThisRun. This run has already generated those — your job is to create ${batchInfo.batchSize} different recommendations that complement them.`
+            : 'This is the first batch — generate the highest-confidence recommendations.',
+        }
+      : null,
     styleLearning: styleLearning || 'No style feedback yet — establish a strong default style.',
   };
 
@@ -431,60 +443,81 @@ async function run(trendAnalysis, scoredVideos, dateString, outputsBase) {
     return [];
   }
 
-  // ── Call Claude ───────────────────────────────────────────────────────────
   const previousTitles = await loadPreviousTitles(outputsBase);
   const styleLearning  = await loadStyleLearning();
-  const userPrompt     = buildPrompt(trendAnalysis, scoredVideos, previousTitles, styleLearning);
-  logger.info(`[Recommender] Prompt size: ~${Math.round(userPrompt.length / 4)} tokens`);
 
-  let rawResponse = '';
-  try {
-    logger.info('[Recommender] Streaming response from Claude...');
-    const stream = await getClient().messages.stream({
-      model:      MODEL,
-      max_tokens: MAX_TOKENS,
-      system:     SYSTEM_PROMPT,
-      messages:   [{ role: 'user', content: userPrompt }],
-    });
+  // ── Run two batches of BATCH_SIZE — total = TOTAL_RECS ──────────────────
+  const totalBatches = Math.ceil(TOTAL_RECS / BATCH_SIZE);
+  const allRawRecs   = [];
 
-    for await (const event of stream) {
-      if (event.type === 'content_block_delta' && event.delta?.type === 'text_delta') {
-        rawResponse += event.delta.text;
+  for (let batchNumber = 1; batchNumber <= totalBatches; batchNumber++) {
+    const startRank = (batchNumber - 1) * BATCH_SIZE + 1;
+    const endRank   = Math.min(batchNumber * BATCH_SIZE, TOTAL_RECS);
+    const batchSize = endRank - startRank + 1;
+
+    const batchInfo = {
+      batchNumber,
+      totalBatches,
+      batchSize,
+      startRank,
+      endRank,
+      alreadyGenerated: allRawRecs.map(r => ({ title: r.title, trendSummary: r.trendSummary })),
+    };
+
+    const userPrompt = buildPrompt(trendAnalysis, scoredVideos, previousTitles, styleLearning, batchInfo);
+    logger.info(`[Recommender] ── BATCH ${batchNumber}/${totalBatches} — generating ${batchSize} recs (ranks ${startRank}-${endRank}) ──`);
+    logger.info(`[Recommender] Prompt size: ~${Math.round(userPrompt.length / 4)} tokens`);
+
+    let rawResponse = '';
+    try {
+      logger.info(`[Recommender] Streaming batch ${batchNumber} response from Claude...`);
+      const stream = await getClient().messages.stream({
+        model:      MODEL,
+        max_tokens: MAX_TOKENS,
+        system:     SYSTEM_PROMPT,
+        messages:   [{ role: 'user', content: userPrompt }],
+      });
+
+      for await (const event of stream) {
+        if (event.type === 'content_block_delta' && event.delta?.type === 'text_delta') {
+          rawResponse += event.delta.text;
+        }
       }
+
+      logger.info(`[Recommender] Batch ${batchNumber} stream complete — ${rawResponse.length} chars`);
+      logger.info(`[Recommender] Batch ${batchNumber} last 300 chars: ${rawResponse.slice(-300)}`);
+    } catch (err) {
+      logger.error(`[Recommender] Batch ${batchNumber} API call failed: ${err.message}`);
+      throw err;
     }
 
-    logger.info(`[Recommender] Stream complete — Claude response: ${rawResponse.length} chars`);
-    logger.info(`[Recommender] Preview (first 500 chars): ${rawResponse.slice(0, 500)}`);
-    logger.info(`[Recommender] Preview (last 500 chars): ${rawResponse.slice(-500)}`);
-  } catch (err) {
-    logger.error(`[Recommender] Claude API call failed: ${err.message}`);
-    throw err;
-  }
-
-  // ── Parse response ────────────────────────────────────────────────────────
-  let parsed;
-  try {
-    parsed = extractJSON(rawResponse);
-    logger.info('[Recommender] JSON parsed successfully.');
-    logger.info(`[Recommender] Parsed object keys: ${Object.keys(parsed).join(', ')}`);
-    if (parsed.recommendations) {
-      logger.info(`[Recommender] Found ${parsed.recommendations.length} recommendations in parsed JSON`);
+    let parsed;
+    try {
+      parsed = extractJSON(rawResponse);
+      logger.info(`[Recommender] Batch ${batchNumber} JSON parsed successfully — keys: ${Object.keys(parsed).join(', ')}`);
+    } catch (err) {
+      logger.error(`[Recommender] Batch ${batchNumber} JSON parse FAILED: ${err.message}`);
+      logger.error(`[Recommender] Batch ${batchNumber} response started with: ${rawResponse.slice(0, 200)}`);
+      logger.error(`[Recommender] Batch ${batchNumber} response ended with: ${rawResponse.slice(-200)}`);
+      continue; // skip this batch but try the next one
     }
-  } catch (err) {
-    logger.error(`[Recommender] JSON parse FAILED: ${err.message}`);
-    logger.error(`[Recommender] Response started with: ${rawResponse.slice(0, 200)}`);
-    logger.error(`[Recommender] Response ended with: ${rawResponse.slice(-200)}`);
-    throw new Error(`Recommender got unparseable Claude response: ${err.message}`);
+
+    const batchRecs = Array.isArray(parsed.recommendations) ? parsed.recommendations : [];
+    if (batchRecs.length === 0) {
+      logger.error(`[Recommender] Batch ${batchNumber} returned no recommendations.`);
+      continue;
+    }
+
+    logger.info(`[Recommender] Batch ${batchNumber} returned ${batchRecs.length} recommendations`);
+    allRawRecs.push(...batchRecs);
   }
 
-  const rawRecs = Array.isArray(parsed.recommendations) ? parsed.recommendations : [];
+  const rawRecs = allRawRecs;
   if (rawRecs.length === 0) {
-    logger.error('[Recommender] Claude returned no recommendations.');
-    logger.error(`[Recommender] Parsed object had keys: ${Object.keys(parsed).join(', ') || '(empty)'}`);
-    logger.error(`[Recommender] First 1000 chars of response: ${rawResponse.slice(0, 1000)}`);
+    logger.error('[Recommender] All batches failed — zero recommendations to save.');
     return [];
   }
-  logger.info(`[Recommender] ${rawRecs.length} raw recommendations received from Claude`);
+  logger.info(`[Recommender] ${rawRecs.length} total recommendations received across ${totalBatches} batches`);
 
   // ── Normalize, rank, tier ─────────────────────────────────────────────────
   const recs = rawRecs
