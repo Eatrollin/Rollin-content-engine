@@ -469,26 +469,45 @@ async function run(trendAnalysis, scoredVideos, dateString, outputsBase) {
     logger.info(`[Recommender] Prompt size: ~${Math.round(userPrompt.length / 4)} tokens`);
 
     let rawResponse = '';
-    try {
-      logger.info(`[Recommender] Streaming batch ${batchNumber} response from Claude...`);
-      const stream = await getClient().messages.stream({
-        model:      MODEL,
-        max_tokens: MAX_TOKENS,
-        system:     SYSTEM_PROMPT,
-        messages:   [{ role: 'user', content: userPrompt }],
-      });
+    const MAX_RETRIES = 3;
+    let attempt       = 0;
+    let batchSucceeded = false;
 
-      for await (const event of stream) {
-        if (event.type === 'content_block_delta' && event.delta?.type === 'text_delta') {
-          rawResponse += event.delta.text;
+    while (attempt < MAX_RETRIES && !batchSucceeded) {
+      attempt++;
+      rawResponse = '';
+      try {
+        logger.info(`[Recommender] Streaming batch ${batchNumber} response from Claude (attempt ${attempt}/${MAX_RETRIES})...`);
+        const stream = await getClient().messages.stream({
+          model:      MODEL,
+          max_tokens: MAX_TOKENS,
+          system:     SYSTEM_PROMPT,
+          messages:   [{ role: 'user', content: userPrompt }],
+        });
+
+        for await (const event of stream) {
+          if (event.type === 'content_block_delta' && event.delta?.type === 'text_delta') {
+            rawResponse += event.delta.text;
+          }
+        }
+
+        logger.info(`[Recommender] Batch ${batchNumber} stream complete — ${rawResponse.length} chars`);
+        logger.info(`[Recommender] Batch ${batchNumber} last 300 chars: ${rawResponse.slice(-300)}`);
+        batchSucceeded = true;
+      } catch (err) {
+        logger.error(`[Recommender] Batch ${batchNumber} attempt ${attempt} failed: ${err.message}`);
+        if (attempt < MAX_RETRIES) {
+          const backoff = attempt * 5000; // 5s, 10s
+          logger.info(`[Recommender] Retrying batch ${batchNumber} in ${backoff / 1000}s...`);
+          await new Promise(r => setTimeout(r, backoff));
+        } else {
+          logger.error(`[Recommender] Batch ${batchNumber} exhausted all retries — skipping batch.`);
         }
       }
+    }
 
-      logger.info(`[Recommender] Batch ${batchNumber} stream complete — ${rawResponse.length} chars`);
-      logger.info(`[Recommender] Batch ${batchNumber} last 300 chars: ${rawResponse.slice(-300)}`);
-    } catch (err) {
-      logger.error(`[Recommender] Batch ${batchNumber} API call failed: ${err.message}`);
-      throw err;
+    if (!batchSucceeded) {
+      continue; // skip parse + add for this batch, move to next batch
     }
 
     let parsed;
