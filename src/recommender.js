@@ -454,9 +454,8 @@ async function run(trendAnalysis, scoredVideos, dateString, outputsBase) {
     }
 
     logger.info(`[Recommender] Stream complete — Claude response: ${rawResponse.length} chars`);
-    logger.info('[Recommender] ── RAW CLAUDE RESPONSE ─────────────────────');
-    logger.info(rawResponse);
-    logger.info('[Recommender] ── END RAW RESPONSE ──────────────────────────');
+    logger.info(`[Recommender] Preview (first 500 chars): ${rawResponse.slice(0, 500)}`);
+    logger.info(`[Recommender] Preview (last 500 chars): ${rawResponse.slice(-500)}`);
   } catch (err) {
     logger.error(`[Recommender] Claude API call failed: ${err.message}`);
     throw err;
@@ -467,18 +466,24 @@ async function run(trendAnalysis, scoredVideos, dateString, outputsBase) {
   try {
     parsed = extractJSON(rawResponse);
     logger.info('[Recommender] JSON parsed successfully.');
+    logger.info(`[Recommender] Parsed object keys: ${Object.keys(parsed).join(', ')}`);
+    if (parsed.recommendations) {
+      logger.info(`[Recommender] Found ${parsed.recommendations.length} recommendations in parsed JSON`);
+    }
   } catch (err) {
-    logger.error(`[Recommender] JSON parse failed: ${err.message}`);
+    logger.error(`[Recommender] JSON parse FAILED: ${err.message}`);
+    logger.error(`[Recommender] Response started with: ${rawResponse.slice(0, 200)}`);
+    logger.error(`[Recommender] Response ended with: ${rawResponse.slice(-200)}`);
     throw new Error(`Recommender got unparseable Claude response: ${err.message}`);
   }
 
   const rawRecs = Array.isArray(parsed.recommendations) ? parsed.recommendations : [];
   if (rawRecs.length === 0) {
     logger.error('[Recommender] Claude returned no recommendations.');
-    logger.error('[Recommender] Parsed object keys:', Object.keys(parsed).join(', ') || '(empty)');
+    logger.error(`[Recommender] Parsed object had keys: ${Object.keys(parsed).join(', ') || '(empty)'}`);
+    logger.error(`[Recommender] First 1000 chars of response: ${rawResponse.slice(0, 1000)}`);
     return [];
   }
-
   logger.info(`[Recommender] ${rawRecs.length} raw recommendations received from Claude`);
 
   // ── Normalize, rank, tier ─────────────────────────────────────────────────
