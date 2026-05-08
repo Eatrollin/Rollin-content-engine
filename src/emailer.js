@@ -1,11 +1,12 @@
 require('dotenv').config();
 
-const sgMail    = require('@sendgrid/mail');
+const { Resend } = require('resend');
 const nodemailer = require('nodemailer');
 const logger     = require('./logger');
 
 // ─── Config ───────────────────────────────────────────────────────────────────
 const RECIPIENT      = 'chasezaidan@eatrollin.food';
+const FROM_ADDRESS   = 'Rollin Content Engine <pipeline@eatrollin.food>';
 const DASHBOARD_URL  = process.env.DASHBOARD_URL ||
   (process.env.NODE_ENV === 'production' ? '' : `http://localhost:${process.env.PORT || process.env.DASHBOARD_PORT || 3000}`);
 const BRAND_GOLD     = '#c8a96e';
@@ -327,16 +328,18 @@ function buildText(data, date) {
   return lines.join('\n');
 }
 
-// ─── SendGrid send ────────────────────────────────────────────────────────────
-async function sendViaSendGrid(subject, text, html) {
-  sgMail.setApiKey(process.env.SENDGRID_API_KEY);
-  await sgMail.send({
-    from:    { email: process.env.EMAIL_USER || 'noreply@eatrollin.food', name: 'Rollin Content Engine' },
+// ─── Resend send ──────────────────────────────────────────────────────────────
+async function sendViaResend(subject, text, html) {
+  const resend = new Resend(process.env.RESEND_API_KEY);
+  const { data, error } = await resend.emails.send({
+    from:    FROM_ADDRESS,
     to:      RECIPIENT,
     subject,
     text,
     html,
   });
+  if (error) throw new Error(`Resend API error: ${error.message || JSON.stringify(error)}`);
+  return data?.id || null;
 }
 
 // ─── Nodemailer fallback send ─────────────────────────────────────────────────
@@ -371,26 +374,26 @@ async function send(state) {
   logger.info(`[Email] Subject: ${subject}`);
   logger.info(`[Email] Trends: ${data.topTrends.length} · Recs: ${data.topRecs.length} · Scraped: ${data.scraped}`);
 
-  // ── Primary: SendGrid ───────────────────────────────────────────────────────
-  if (process.env.SENDGRID_API_KEY) {
+  // ── Primary: Resend ─────────────────────────────────────────────────────────
+  if (process.env.RESEND_API_KEY) {
     try {
-      await sendViaSendGrid(subject, text, html);
-      logger.info('[Email] ✓ Sent via SendGrid.');
+      const messageId = await sendViaResend(subject, text, html);
+      logger.info(`[Email] ✓ Sent via Resend — Message ID: ${messageId || 'n/a'}`);
       logger.info('[Email] ─────────────────────────────────────────────');
-      return { success: true, transport: 'sendgrid' };
+      return { success: true, transport: 'resend', messageId };
     } catch (err) {
-      logger.error(`[Email] ✗ SendGrid failed: ${err.message}`);
+      logger.error(`[Email] ✗ Resend failed: ${err.message}`);
       logger.warn('[Email] Falling back to Nodemailer SMTP...');
     }
   } else {
-    logger.warn('[Email] SENDGRID_API_KEY not set — falling back to Nodemailer SMTP.');
+    logger.warn('[Email] RESEND_API_KEY not set — falling back to Nodemailer SMTP.');
   }
 
   // ── Fallback: Nodemailer SMTP ───────────────────────────────────────────────
   if (!process.env.EMAIL_USER || !process.env.EMAIL_PASSWORD) {
     logger.error('[Email] EMAIL_USER or EMAIL_PASSWORD not set — cannot fall back. Skipping.');
     logger.info('[Email] ─────────────────────────────────────────────');
-    return { success: false, error: 'No email transport available (SENDGRID_API_KEY and SMTP credentials both missing)' };
+    return { success: false, error: 'No email transport available (RESEND_API_KEY and SMTP credentials both missing)' };
   }
 
   try {
