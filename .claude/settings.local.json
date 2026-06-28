@@ -2,7 +2,14 @@
   "permissions": {
     "allow": [
       "Bash(npm install *)",
-      "Bash(node -e \"require\\('fluent-ffmpeg'\\); console.log\\('ok'\\)\")"
+      "Bash(node -e \"require\\('fluent-ffmpeg'\\); console.log\\('ok'\\)\")",
+      "Bash(git add *)",
+      "Bash(git commit *)",
+      "Bash(git push *)",
+      "Bash(node --check src/editorManager.js)",
+      "Bash(node --check src/editorEmail.js)",
+      "Bash(node --check src/emailer.js)",
+      "Bash(node --check src/dashboard/server.js)"
     ]
   }
 }

@@ -10,6 +10,7 @@ const logger     = require('../logger');
 const { DATA_DIR } = require('../config');
 
 const approvalManager = require('../approvalManager');
+const editorManager   = require('../editorManager');
 const higgsfield      = require('../higgsfield');
 const kpiScorer       = require('../kpiScorer');
 
@@ -105,20 +106,54 @@ async function loadSevenDayPerf() {
   } catch { return []; }
 }
 
+// ─── Find a rec JSON by ID (searches date folder + run-labeled variants) ─────
+async function findRecById(recId, date) {
+  const allFolders     = await fse.readdir(OUTPUTS_BASE).catch(() => []);
+  const foldersToSearch = [
+    date,
+    ...allFolders.filter(f => f.startsWith(date + '-') || f === date),
+  ].filter((v, i, a) => a.indexOf(v) === i);
+
+  for (const folder of foldersToSearch) {
+    const dateDir = path.join(OUTPUTS_BASE, folder);
+    if (!(await fse.pathExists(dateDir))) continue;
+    for (const tier of ['high', 'medium', 'low']) {
+      const tierDir = path.join(dateDir, tier);
+      if (!(await fse.pathExists(tierDir))) continue;
+      const files = (await fse.readdir(tierDir)).filter(f => f.endsWith('.json'));
+      for (const f of files) {
+        try {
+          const data = await fse.readJson(path.join(tierDir, f));
+          if (data.id === recId) return { data, tier };
+        } catch { /* skip corrupt file */ }
+      }
+    }
+  }
+  return null;
+}
+
 // ─── API: full dashboard state ────────────────────────────────────────────────
 app.get('/api/state', async (req, res) => {
   try {
     const today     = req.query.date || todayString();
     const yesterday = dateString(1);
 
-    const [recs, scrapeStats, scrapeYesterday, approvalHistory, sevenDay, kpiVideos] = await Promise.all([
+    const [recs, scrapeStats, scrapeYesterday, approvalHistory, sevenDay, kpiVideos, allEditorSends] = await Promise.all([
       loadRecs(today),
       loadScrapeStats(today),
       loadScrapeStats(yesterday),
       approvalManager.getApprovalHistory(),
       loadSevenDayPerf(),
       loadKpiVideos(today),
+      editorManager.getAllSends(),
     ]);
+
+    // Group editor sends by recId, newest first
+    const editorSends = {};
+    [...allEditorSends].reverse().forEach(send => {
+      if (!editorSends[send.recId]) editorSends[send.recId] = [];
+      editorSends[send.recId].push(send);
+    });
 
     const perfHistory = await fse.readJson(PERF_HISTORY).catch(() => ({ posts: [] }));
 
@@ -161,6 +196,7 @@ app.get('/api/state', async (req, res) => {
         approvalCap: approvalManager.MAX_APPROVALS_PER_DAY,
       },
       kpiVideos,
+      editorSends,
       recommendations: recs,
       higgsfieldJobs: recs
         .filter(r => r.higgsfield?.jobId)
@@ -188,31 +224,10 @@ app.get('/api/state', async (req, res) => {
 app.get('/api/recommendation/:recId', async (req, res) => {
   const { recId } = req.params;
   const date      = req.query.date || todayString();
-
   try {
-    // Build list of folders to search — exact date first, then any run-labeled variants
-    const allFolders = await fse.readdir(OUTPUTS_BASE).catch(() => []);
-    const foldersToSearch = [
-      date,
-      ...allFolders.filter(f => f.startsWith(date + '-') || f === date),
-    ].filter((v, i, a) => a.indexOf(v) === i); // dedupe
-
-    for (const folder of foldersToSearch) {
-      const dateDir = path.join(OUTPUTS_BASE, folder);
-      if (!(await fse.pathExists(dateDir))) continue;
-      for (const tier of ['high', 'medium', 'low']) {
-        const tierDir = path.join(dateDir, tier);
-        if (!(await fse.pathExists(tierDir))) continue;
-        const files = (await fse.readdir(tierDir)).filter(f => f.endsWith('.json'));
-        for (const f of files) {
-          try {
-            const data = await fse.readJson(path.join(tierDir, f));
-            if (data.id === recId) return res.json(data);
-          } catch { /* skip corrupt file */ }
-        }
-      }
-    }
-    res.status(404).json({ error: 'Recommendation not found' });
+    const found = await findRecById(recId, date);
+    if (!found) return res.status(404).json({ error: 'Recommendation not found' });
+    return res.json(found.data);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -393,6 +408,64 @@ app.post('/api/series/:seriesId/reject/:episodeId', async (req, res) => {
     const result = await seriesManager.rejectEpisode(seriesId, episodeId, note || '');
     res.json(result);
   } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── API: known editor emails ─────────────────────────────────────────────────
+app.get('/api/editor-emails', async (req, res) => {
+  try {
+    res.json({ emails: await editorManager.getKnownEmails() });
+  } catch (err) {
+    logger.error(`[Dashboard] /api/editor-emails error: ${err.message}`);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── API: send edit brief to editor ──────────────────────────────────────────
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+app.post('/api/send-to-editor', async (req, res) => {
+  const { recId, date, tier, editorEmail } = req.body;
+  if (!recId || !date) return res.status(400).json({ error: 'recId and date required' });
+  if (!editorEmail || !EMAIL_RE.test(String(editorEmail))) {
+    return res.status(400).json({ error: 'Valid editorEmail required' });
+  }
+
+  try {
+    const found = await findRecById(recId, date);
+    if (!found) return res.status(404).json({ error: 'Recommendation not found' });
+
+    const rec = found.data;
+
+    if (rec.approvalStatus !== 'approved' && !rec.approved) {
+      return res.status(403).json({ error: 'Recommendation must be approved before sending to an editor.' });
+    }
+
+    const { buildEditorEmail } = require('../editorEmail');
+    const { subject, html }    = buildEditorEmail({ ...rec, tier: found.tier });
+
+    const { sendRaw } = require('../emailer');
+    const resendId    = await sendRaw({ to: editorEmail, subject, html });
+
+    const result = await editorManager.recordSend({
+      recId,
+      date,
+      tier:    found.tier,
+      title:   rec.title || '',
+      editorEmail,
+      resendId,
+    });
+
+    const sends     = await editorManager.getSendsForRec(recId);
+    const sentAt    = result.send.sentAt;
+    const sendCount = sends.length;
+
+    io.emit('editor:sent', { recId, editorEmail, sentAt, sendCount });
+    logger.info(`[Dashboard] ✓ Edit brief sent: ${recId} → ${editorEmail} (send #${sendCount})`);
+    res.json({ success: true, send: result.send });
+  } catch (err) {
+    logger.error(`[Dashboard] /api/send-to-editor error: ${err.message}`);
     res.status(500).json({ error: err.message });
   }
 });

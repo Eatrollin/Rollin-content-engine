@@ -342,6 +342,14 @@ async function sendViaResend(subject, text, html) {
   return data?.id || null;
 }
 
+// ─── sendRaw — reusable one-off send via Resend ───────────────────────────────
+async function sendRaw({ to, subject, html }) {
+  const resend = new Resend(process.env.RESEND_API_KEY);
+  const { data, error } = await resend.emails.send({ from: FROM_ADDRESS, to, subject, html });
+  if (error) throw new Error(`Resend API error: ${error.message || JSON.stringify(error)}`);
+  return data?.id || null;
+}
+
 // ─── Nodemailer fallback send ─────────────────────────────────────────────────
 async function sendViaNodemailer(subject, text, html) {
   const transporter = createTransport();
@@ -408,4 +416,4 @@ async function send(state) {
   }
 }
 
-module.exports = { send };
+module.exports = { send, sendRaw };

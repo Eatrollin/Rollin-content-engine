@@ -281,3 +281,13 @@ body { background: var(--bg); color: var(--white); font-family: var(--font); fon
 .series-ep-brief-link { margin-top: 8px; font-size: 10px; color: var(--accent); letter-spacing: 0.05em; opacity: 0.75; cursor: pointer; }
 .series-ep-brief-link:hover { opacity: 1; }
 .series-no-ep { font-size: 11px; color: var(--gray-3); font-style: italic; padding: 8px 0; }
+
+/* ─── Editor Send Panel ─────────────────────────────────────────────────────── */
+.editor-send-panel { display: flex; flex-direction: column; gap: 6px; margin-top: 6px; }
+.editor-send-row { display: flex; gap: 8px; align-items: center; }
+.editor-send-row .approve-note-input { flex: 1; min-width: 0; }
+.btn-send-editor { background: #1c1608; border: 1px solid var(--gold-dim); color: var(--gold); font-size: 10px; letter-spacing: 0.15em; font-weight: 700; padding: 9px 12px; border-radius: var(--radius); cursor: pointer; transition: all 0.15s; font-family: var(--font); white-space: nowrap; flex-shrink: 0; }
+.btn-send-editor:hover:not(:disabled) { background: #2a1f08; border-color: var(--gold); }
+.btn-send-editor:disabled { opacity: 0.4; cursor: not-allowed; }
+.editor-send-history { font-size: 10px; color: var(--approved-tx); letter-spacing: 0.04em; min-height: 0; }
+.editor-send-error { font-size: 11px; color: var(--rejected-tx); min-height: 0; }

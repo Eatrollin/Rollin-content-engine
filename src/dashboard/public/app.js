@@ -1,7 +1,9 @@
 /* ─── State ─────────────────────────────────────────────────────────────────── */
-let STATE      = null;
-let TODAY      = null;
-let rejectTarget = null;  // { recId, tier, title }
+let STATE            = null;
+let TODAY            = null;
+let rejectTarget     = null;  // { recId, tier, title }
+let knownEditorEmails = [];
+let EDITOR_STATE     = {};   // { [recId]: { tier, sends[] } }
 
 /* ─── Init ──────────────────────────────────────────────────────────────────── */
 document.addEventListener('DOMContentLoaded', () => {
@@ -9,6 +11,12 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('nav-date').textContent = TODAY;
   loadState();
   loadDateDropdown();
+  loadKnownEmails();
+
+  // Single datalist for editor email autocomplete — shared across all cards
+  const dl = document.createElement('datalist');
+  dl.id = 'editor-email-suggestions';
+  document.body.appendChild(dl);
 
   // Socket.io — live updates when pipeline completes or approval changes
   const socket = io();
@@ -23,6 +31,12 @@ document.addEventListener('DOMContentLoaded', () => {
   });
   socket.on('pipeline:start', () => setStatus('running'));
   socket.on('pipeline:error', () => setStatus('error'));
+  socket.on('editor:sent', (data) => {
+    const { recId, editorEmail, sentAt } = data;
+    if (!EDITOR_STATE[recId]) EDITOR_STATE[recId] = { tier: '', sends: [] };
+    EDITOR_STATE[recId].sends.unshift({ editorEmail, sentAt });
+    updateEditorHistoryLine(recId);
+  });
 });
 
 /* ─── Rec Detail Modal ──────────────────────────────────────────────────────── */
@@ -305,6 +319,13 @@ async function loadDateDropdown() {
 }
 
 function renderAll(s) {
+  // Hydrate per-rec editor send history from state
+  const editorSendsMap = s.editorSends || {};
+  (s.recommendations || []).forEach(r => {
+    const sends = editorSendsMap[r.id] || [];
+    EDITOR_STATE[r.id] = { tier: r.tier || 'low', sends };
+    r._editorSends = sends;
+  });
   renderMetrics(s.metrics);
   renderKpiVideos(s.kpiVideos || []);
   renderRecs(s.recommendations || []);
@@ -431,9 +452,11 @@ function buildRecCard(rec) {
     ? `<span class="badge badge-series">SERIES POTENTIAL</span>`
     : '';
 
-  const approvalNote = rec.approvalNote ? ` — ${escHtml(rec.approvalNote.slice(0, 80))}` : '';
+  const approvalNote   = rec.approvalNote ? ` — ${escHtml(rec.approvalNote.slice(0, 80))}` : '';
+  const editorSends    = rec._editorSends || [];
   const actionHtml = isApproved
-    ? `<div class="decision-label decision-approved">✓ APPROVED${approvalNote}</div>`
+    ? `<div class="decision-label decision-approved">✓ APPROVED${approvalNote}</div>
+       ${buildEditorPanel(rec.id, tier, editorSends)}`
     : isRejected
     ? `<div class="decision-label decision-rejected">✗ REJECTED — ${escHtml(rec.rejectionNote || '').slice(0, 60)}</div>`
     : `<div class="rec-footer" onclick="event.stopPropagation()">
@@ -525,9 +548,13 @@ function updateCardDecision(recId, decision, note) {
   card.classList.remove('is-approved', 'is-rejected');
   card.classList.add(decision === 'approved' ? 'is-approved' : 'is-rejected');
 
-  const footer = card.querySelector('.rec-footer');
+  const footer   = card.querySelector('.rec-footer');
   const existing = card.querySelector('.decision-label');
   if (existing) existing.remove();
+
+  // Remove any existing editor panel before re-injecting
+  const existingPanel = card.querySelector('.editor-send-panel');
+  if (existingPanel) existingPanel.remove();
 
   const label = document.createElement('div');
   label.className = 'decision-label ' + (decision === 'approved' ? 'decision-approved' : 'decision-rejected');
@@ -537,6 +564,105 @@ function updateCardDecision(recId, decision, note) {
 
   if (footer) footer.replaceWith(label);
   else card.appendChild(label);
+
+  // Approved: inject the send-to-editor panel below the decision label
+  if (decision === 'approved') {
+    const state = EDITOR_STATE[recId] || { tier: '', sends: [] };
+    label.insertAdjacentHTML('afterend', buildEditorPanel(recId, state.tier, state.sends));
+  }
+}
+
+/* ─── Send to Editor ────────────────────────────────────────────────────────── */
+function buildEditorPanel(recId, tier, sends) {
+  const history = buildEditorHistoryLine(sends);
+  return `
+<div class="editor-send-panel" id="editor-panel-${recId}" onclick="event.stopPropagation()">
+  <div class="editor-send-history" id="editor-history-${recId}">${history}</div>
+  <div class="editor-send-row">
+    <input type="email" id="editor-email-${recId}" class="approve-note-input" placeholder="editor@example.com" list="editor-email-suggestions" autocomplete="off" />
+    <button class="btn-send-editor" id="editor-btn-${recId}" onclick="handleSendToEditor('${recId}','${escAttr(tier)}')">SEND BRIEF</button>
+  </div>
+  <div class="editor-send-error" id="editor-err-${recId}"></div>
+</div>`;
+}
+
+function buildEditorHistoryLine(sends) {
+  if (!sends || !sends.length) return '';
+  const last = sends[0]; // newest first
+  const dt   = last.sentAt
+    ? new Date(last.sentAt).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
+    : '';
+  if (sends.length === 1) {
+    return `Sent to ${escHtml(last.editorEmail)} — ${dt} ✓`;
+  }
+  return `Sent ${sends.length}&times; — last: ${escHtml(last.editorEmail)}, ${dt} ✓`;
+}
+
+function updateEditorHistoryLine(recId) {
+  const el = document.getElementById(`editor-history-${recId}`);
+  if (!el) return;
+  const state = EDITOR_STATE[recId];
+  if (!state) return;
+  el.innerHTML = buildEditorHistoryLine(state.sends || []);
+}
+
+async function loadKnownEmails() {
+  try {
+    const res  = await fetch('/api/editor-emails');
+    const data = await res.json();
+    knownEditorEmails = data.emails || [];
+    updateEmailDatalist();
+  } catch (err) {
+    console.error('Failed to load editor emails:', err);
+  }
+}
+
+function updateEmailDatalist() {
+  const dl = document.getElementById('editor-email-suggestions');
+  if (!dl) return;
+  dl.innerHTML = knownEditorEmails.map(e => `<option value="${escHtml(e)}">`).join('');
+}
+
+async function handleSendToEditor(recId, tier) {
+  const emailEl = document.getElementById(`editor-email-${recId}`);
+  const btnEl   = document.getElementById(`editor-btn-${recId}`);
+  const errEl   = document.getElementById(`editor-err-${recId}`);
+  if (!emailEl) return;
+
+  const editorEmail = emailEl.value.trim();
+  if (!editorEmail) { if (errEl) errEl.textContent = 'Please enter an email address.'; return; }
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(editorEmail)) {
+    if (errEl) errEl.textContent = 'Please enter a valid email address.';
+    return;
+  }
+
+  if (btnEl) { btnEl.disabled = true; btnEl.textContent = 'SENDING…'; }
+  if (errEl) errEl.textContent = '';
+
+  try {
+    const res  = await fetch('/api/send-to-editor', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ recId, date: TODAY, tier, editorEmail }),
+    });
+    const data = await res.json();
+
+    if (res.ok && data.success) {
+      emailEl.value = '';
+      showToast(`Brief sent to ${editorEmail} ✓`, 'ok');
+      // Add to local datalist immediately without waiting for next load
+      if (!knownEditorEmails.some(e => e.toLowerCase() === editorEmail.toLowerCase())) {
+        knownEditorEmails.push(editorEmail);
+        updateEmailDatalist();
+      }
+    } else {
+      if (errEl) errEl.textContent = data.error || 'Failed to send brief.';
+    }
+  } catch (err) {
+    if (errEl) errEl.textContent = 'Network error: ' + err.message;
+  } finally {
+    if (btnEl) { btnEl.disabled = false; btnEl.textContent = 'SEND BRIEF'; }
+  }
 }
 
 function updateApprovalCounter() {
